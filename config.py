@@ -23,30 +23,53 @@ INSTRUMENTS = [
     "AVAXUSDT.P",     # Avalanche Perpetual
 ]
 
-# TIMEFRAMES (TEST ACROSS ALL)
-TIMEFRAMES = ["2m", "5m", "15m", "30m"]    # All timeframes
-PRIMARY_TIMEFRAME = "5m"                    # Default for discovery
-TEST_CROSS_TIMEFRAME_CONFIRMATION = True    # Validate across TFs
+# ===== HIGHER TIMEFRAME (HTF) TOP-DOWN ANALYSIS =====
+# HTF provides market context and directional bias
+HTF_TIMEFRAMES = ["1w", "1d", "4h"]  # Weekly, Daily, 4-Hour for context
+HTF_ENABLED = True  # Enable HTF filtering (recommended)
+
+# LTF executes signals aligned with HTF bias
+LTF_TIMEFRAMES = ["30m", "15m", "5m"]  # Lower timeframes for execution
+
+# All timeframes (for legacy compatibility)
+TIMEFRAMES = ["2m", "5m", "15m", "30m"]  # Will be replaced by LTF_TIMEFRAMES
+PRIMARY_TIMEFRAME = "5m"  # Default for discovery
+TEST_CROSS_TIMEFRAME_CONFIRMATION = True  # Validate across TFs
+
+# HTF Analysis Settings
+HTF_ALIGNMENT_REQUIRED = True  # Only trade signals aligned with HTF
+HTF_MIN_ALIGNMENT_SCORE = 50  # Minimum alignment score (0-100)
+HTF_MIN_BIAS_STRENGTH = 40  # Minimum bias strength to trade (0-100)
+HTF_ALLOW_COUNTERTREND = False  # Allow counter-trend trades in ranging markets
 
 # Timeframe characteristics
 TIMEFRAME_CHARACTERISTICS = {
-    "2m": {
-        "duration_minutes": 2,
-        "typical_hold_minutes": (2, 5),
-        "target_pips": (5, 20),
-        "spread_pips": (0.3, 0.5),
-        "slippage_pips": (0.3, 0.7),
-        "best_for": "High-frequency, minimal risk",
-        "setup_type": "Momentum, microstructure"
+    # Higher Timeframes (HTF) - Context/Bias
+    "1w": {
+        "duration_minutes": 10080,  # 7 days
+        "role": "primary_context",
+        "purpose": "Major trend direction, key macro levels"
     },
-    "5m": {
-        "duration_minutes": 5,
-        "typical_hold_minutes": (5, 15),
-        "target_pips": (10, 30),
-        "spread_pips": (0.5, 1.0),
-        "slippage_pips": (0.5, 1.0),
-        "best_for": "Balanced risk/reward",
-        "setup_type": "Mean reversion, breakouts"
+    "1d": {
+        "duration_minutes": 1440,  # 24 hours
+        "role": "secondary_context",
+        "purpose": "Daily trend, swing levels, momentum"
+    },
+    "4h": {
+        "duration_minutes": 240,
+        "role": "tertiary_context",
+        "purpose": "Intraday trend, immediate bias"
+    },
+    # Lower Timeframes (LTF) - Execution
+    "30m": {
+        "duration_minutes": 30,
+        "typical_hold_minutes": (30, 120),
+        "target_pips": (50, 200),
+        "spread_pips": (1.5, 3.0),
+        "slippage_pips": (1.5, 2.0),
+        "best_for": "Strong signals only",
+        "setup_type": "Major support/resistance, large moves",
+        "role": "execution"
     },
     "15m": {
         "duration_minutes": 15,
@@ -55,17 +78,30 @@ TIMEFRAME_CHARACTERISTICS = {
         "spread_pips": (1.0, 2.0),
         "slippage_pips": (1.0, 1.5),
         "best_for": "Institutional-grade signals",
-        "setup_type": "Technical breakdowns, confluence"
+        "setup_type": "Technical breakdowns, confluence",
+        "role": "execution"
     },
-    "30m": {
-        "duration_minutes": 30,
-        "typical_hold_minutes": (30, 120),
-        "target_pips": (50, 200),
-        "spread_pips": (1.5, 3.0),
-        "slippage_pips": (1.5, 2.0),
-        "best_for": "Strong signals only",
-        "setup_type": "Major support/resistance, large moves"
-    }
+    "5m": {
+        "duration_minutes": 5,
+        "typical_hold_minutes": (5, 15),
+        "target_pips": (10, 30),
+        "spread_pips": (0.5, 1.0),
+        "slippage_pips": (0.5, 1.0),
+        "best_for": "Balanced risk/reward",
+        "setup_type": "Mean reversion, breakouts",
+        "role": "execution"
+    },
+    # Legacy (will be phased out)
+    "2m": {
+        "duration_minutes": 2,
+        "typical_hold_minutes": (2, 5),
+        "target_pips": (5, 20),
+        "spread_pips": (0.3, 0.5),
+        "slippage_pips": (0.3, 0.7),
+        "best_for": "High-frequency, minimal risk",
+        "setup_type": "Momentum, microstructure",
+        "role": "execution"
+    },
 }
 
 DATA_LOOKBACK_MONTHS = 6                    # 6 months per timeframe
