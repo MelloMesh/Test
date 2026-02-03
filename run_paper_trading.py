@@ -9,7 +9,7 @@ import sys
 import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
@@ -22,7 +22,7 @@ import config
 from analysis.higher_timeframe_analyzer import HigherTimeframeAnalyzer, HTFContext
 from data.binance_fetcher import BinanceFetcher
 from signals.signal_discovery_htf import get_htf_aware_signals
-from trading.telegram_bot import TradingTelegramBot
+from trading.telegram_bot import TradingTelegramBot, load_telegram_credentials
 
 # Setup logging
 logging.basicConfig(
@@ -73,10 +73,11 @@ class PaperTradingEngine:
 
         # Load Telegram bot
         self.telegram_bot = None
-        try:
-            self.telegram_bot = TradingTelegramBot()
+        token, chat_id = load_telegram_credentials()
+        if token and chat_id:
+            self.telegram_bot = TradingTelegramBot(token, chat_id, config)
             logger.info("✅ Telegram bot initialized")
-        except:
+        else:
             logger.warning("⚠️ Telegram bot not configured")
 
         # Results file
@@ -113,7 +114,7 @@ class PaperTradingEngine:
                 'losing_trades': self.losing_trades,
                 'total_pnl': self.total_pnl,
                 'closed_trades': [asdict(t) for t in self.closed_trades],
-                'last_updated': datetime.utcnow().isoformat()
+                'last_updated': datetime.now(timezone.utc).isoformat()
             }
 
             with open(self.results_file, 'w') as f:
@@ -159,7 +160,7 @@ class PaperTradingEngine:
             signal_name=signal_name,
             direction=direction,
             entry_price=entry_price,
-            entry_time=datetime.utcnow(),
+            entry_time=datetime.now(timezone.utc),
             stop_loss=stop_loss,
             take_profit=take_profit,
             position_size=position_size,
@@ -199,7 +200,7 @@ class PaperTradingEngine:
             # Get current price
             try:
                 # Fetch latest candle
-                end = datetime.utcnow()
+                end = datetime.now(timezone.utc)
                 start = end - timedelta(minutes=5)
                 df = self.exchange.get_ohlcv(symbol, '1m', start, end, limit=1)
 
@@ -246,7 +247,7 @@ class PaperTradingEngine:
 
         trade = self.open_trades[symbol]
         trade.exit_price = exit_price
-        trade.exit_time = datetime.utcnow()
+        trade.exit_time = datetime.now(timezone.utc)
         trade.reason = reason
 
         # Calculate P&L
@@ -423,7 +424,7 @@ async def main():
             engine.check_and_close_trades()
 
             # Display performance every 10 minutes
-            if datetime.utcnow().minute % 10 == 0:
+            if datetime.now(timezone.utc).minute % 10 == 0:
                 engine.display_performance()
 
             # Wait 60 seconds
