@@ -23,6 +23,8 @@ from analysis.higher_timeframe_analyzer import HigherTimeframeAnalyzer, HTFConte
 from data.binance_fetcher import BinanceFetcher
 from signals.signal_discovery_htf import get_htf_aware_signals
 from trading.telegram_bot import TradingTelegramBot, load_telegram_credentials
+from signals.limit_order_manager import get_limit_manager
+from signals.confluence_scorer import get_confluence_scorer
 
 # Setup logging
 logging.basicConfig(
@@ -45,7 +47,11 @@ class PaperTrade:
     position_size: float  # USDT
     htf_bias: str
     htf_alignment: float
-    status: str = 'open'  # 'open', 'closed_win', 'closed_loss'
+    order_type: str = 'MARKET'  # 'MARKET' or 'LIMIT'
+    limit_price: Optional[float] = None  # For limit orders
+    trade_type: str = ''  # TREND_CONTINUATION, MEAN_REVERSION, etc.
+    confluence_score: int = 0
+    status: str = 'open'  # 'open', 'pending_limit', 'closed_win', 'closed_loss'
     exit_price: Optional[float] = None
     exit_time: Optional[datetime] = None
     pnl: float = 0.0
@@ -60,10 +66,15 @@ class PaperTradingEngine:
         self.initial_capital = initial_capital
         self.current_capital = initial_capital
         self.open_trades: Dict[str, PaperTrade] = {}
+        self.pending_limits: Dict[str, PaperTrade] = {}  # Limit orders waiting to fill
         self.closed_trades: List[PaperTrade] = []
 
         self.exchange = BinanceFetcher()
         self.htf_analyzer = HigherTimeframeAnalyzer(config)
+
+        # Limit management
+        self.limit_manager = get_limit_manager()
+        self.confluence_scorer = get_confluence_scorer()
 
         # Performance tracking
         self.total_trades = 0
@@ -131,62 +142,196 @@ class PaperTradingEngine:
         direction: str,
         entry_price: float,
         htf_context: HTFContext,
-        position_size_pct: float = 2.0  # 2% of capital per trade
+        order_type: str = 'MARKET',
+        limit_price: Optional[float] = None,
+        trade_type: str = '',
+        confluence_score: int = 0,
+        position_size_multiplier: float = 1.0
     ) -> Optional[PaperTrade]:
-        """Open a new paper trade"""
+        """
+        Open a new paper trade (market or limit order)
+
+        Args:
+            order_type: 'MARKET' or 'LIMIT'
+            limit_price: Price for limit orders
+            trade_type: Type of trade (TREND_CONTINUATION, MEAN_REVERSION, etc.)
+            confluence_score: Signal confluence score 0-10
+            position_size_multiplier: Multiplier for position size based on confluence
+        """
 
         # Check if we already have a trade open for this symbol
-        if symbol in self.open_trades:
-            logger.debug(f"Already have open trade for {symbol}, skipping")
+        if symbol in self.open_trades or symbol in self.pending_limits:
+            logger.debug(f"Already have open/pending trade for {symbol}, skipping")
             return None
 
-        # Calculate position size
+        # Calculate position size (base 2% * multiplier)
+        base_pct = 2.0
+        position_size_pct = base_pct * position_size_multiplier
         position_size = self.current_capital * (position_size_pct / 100)
 
         # Calculate stop loss and take profit (2% risk, 4% reward = 1:2 R:R)
         risk_pct = 0.02
         reward_pct = 0.04
 
+        # Use limit price for SL/TP calculation if it's a limit order
+        price_for_calc = limit_price if order_type == 'LIMIT' else entry_price
+
         if direction == 'long':
-            stop_loss = entry_price * (1 - risk_pct)
-            take_profit = entry_price * (1 + reward_pct)
+            stop_loss = price_for_calc * (1 - risk_pct)
+            take_profit = price_for_calc * (1 + reward_pct)
         else:  # short
-            stop_loss = entry_price * (1 + risk_pct)
-            take_profit = entry_price * (1 - reward_pct)
+            stop_loss = price_for_calc * (1 + risk_pct)
+            take_profit = price_for_calc * (1 - reward_pct)
 
         # Create trade
         trade = PaperTrade(
             symbol=symbol,
             signal_name=signal_name,
             direction=direction,
-            entry_price=entry_price,
+            entry_price=limit_price if order_type == 'LIMIT' else entry_price,
             entry_time=datetime.now(timezone.utc),
             stop_loss=stop_loss,
             take_profit=take_profit,
             position_size=position_size,
             htf_bias=htf_context.primary_bias,
-            htf_alignment=htf_context.alignment_score
+            htf_alignment=htf_context.alignment_score,
+            order_type=order_type,
+            limit_price=limit_price,
+            trade_type=trade_type,
+            confluence_score=confluence_score,
+            status='pending_limit' if order_type == 'LIMIT' else 'open'
         )
 
-        self.open_trades[symbol] = trade
-        self.total_trades += 1
-
-        logger.info(f"\n{'='*80}")
-        logger.info(f"📈 OPENED {direction.upper()} TRADE: {symbol}")
-        logger.info(f"{'='*80}")
-        logger.info(f"  Signal: {signal_name}")
-        logger.info(f"  Entry: ${entry_price:,.4f}")
-        logger.info(f"  Stop Loss: ${stop_loss:,.4f} ({-risk_pct*100:.1f}%)")
-        logger.info(f"  Take Profit: ${take_profit:,.4f} (+{reward_pct*100:.1f}%)")
-        logger.info(f"  Position Size: ${position_size:,.2f}")
-        logger.info(f"  HTF Bias: {htf_context.primary_bias.upper()} ({htf_context.alignment_score:.0f}%)")
-        logger.info(f"{'='*80}\n")
+        # Add to appropriate tracking dict
+        if order_type == 'LIMIT':
+            self.pending_limits[symbol] = trade
+            logger.info(f"\n{'='*80}")
+            logger.info(f"📋 PLACED {direction.upper()} LIMIT ORDER: {symbol}")
+            logger.info(f"{'='*80}")
+            logger.info(f"  Signal: {signal_name}")
+            logger.info(f"  Trade Type: {trade_type}")
+            logger.info(f"  Confluence Score: {confluence_score}/10")
+            logger.info(f"  Current Price: ${entry_price:,.4f}")
+            logger.info(f"  Limit Price: ${limit_price:,.4f}")
+            logger.info(f"  Stop Loss: ${stop_loss:,.4f} ({-risk_pct*100:.1f}%)")
+            logger.info(f"  Take Profit: ${take_profit:,.4f} (+{reward_pct*100:.1f}%)")
+            logger.info(f"  Position Size: ${position_size:,.2f} ({position_size_multiplier:.1f}x)")
+            logger.info(f"  HTF Bias: {htf_context.primary_bias.upper()} ({htf_context.alignment_score:.0f}%)")
+            logger.info(f"{'='*80}\n")
+        else:
+            self.open_trades[symbol] = trade
+            self.total_trades += 1
+            logger.info(f"\n{'='*80}")
+            logger.info(f"🚀 OPENED {direction.upper()} MARKET TRADE: {symbol}")
+            logger.info(f"{'='*80}")
+            logger.info(f"  Signal: {signal_name}")
+            logger.info(f"  Trade Type: {trade_type}")
+            logger.info(f"  Confluence Score: {confluence_score}/10")
+            logger.info(f"  Entry: ${entry_price:,.4f}")
+            logger.info(f"  Stop Loss: ${stop_loss:,.4f} ({-risk_pct*100:.1f}%)")
+            logger.info(f"  Take Profit: ${take_profit:,.4f} (+{reward_pct*100:.1f}%)")
+            logger.info(f"  Position Size: ${position_size:,.2f} ({position_size_multiplier:.1f}x)")
+            logger.info(f"  HTF Bias: {htf_context.primary_bias.upper()} ({htf_context.alignment_score:.0f}%)")
+            logger.info(f"{'='*80}\n")
 
         # Send Telegram notification
         if self.telegram_bot:
             asyncio.create_task(self._send_trade_opened_notification(trade, htf_context))
 
         return trade
+
+    def check_pending_limits(self):
+        """Check pending limit orders for fills or overrides"""
+
+        if not self.pending_limits:
+            return
+
+        symbols_to_fill = []
+        symbols_to_cancel = []
+
+        for symbol, trade in self.pending_limits.items():
+            try:
+                # Get current price
+                end = datetime.now(timezone.utc)
+                start = end - timedelta(minutes=5)
+                df = self.exchange.get_ohlcv(symbol, '1m', start, end, limit=5)
+
+                if df.empty:
+                    continue
+
+                current_price = df.iloc[-1]['close']
+
+                # Build order key for limit manager
+                order_key = f"{symbol}_{trade.signal_name}_{trade.direction}"
+
+                # Check if limit filled (price touched limit)
+                filled = False
+                if trade.direction == 'long':
+                    # Long limit fills if price touched limit or below
+                    filled = df['low'].min() <= trade.limit_price
+                else:
+                    # Short limit fills if price touched limit or above
+                    filled = df['high'].max() >= trade.limit_price
+
+                if filled:
+                    logger.info(f"✅ LIMIT FILLED: {symbol} @ ${trade.limit_price:,.4f}")
+                    # Convert to open trade
+                    trade.status = 'open'
+                    trade.entry_price = trade.limit_price
+                    self.open_trades[symbol] = trade
+                    symbols_to_fill.append(symbol)
+                    self.total_trades += 1
+
+                    # Remove from limit manager
+                    self.limit_manager.remove_limit_order(order_key)
+                    continue
+
+                # Check if should override to market
+                override_decision = self.limit_manager.check_limit_override(
+                    order_key=order_key,
+                    current_price=current_price,
+                    current_confluence_score=trade.confluence_score,  # Would need re-evaluation in real system
+                    rsi_value=None,  # Would fetch from data in real system
+                    has_divergence=False,
+                    volume_spike=1.0
+                )
+
+                if override_decision == 'CANCEL_LIMIT_GO_MARKET':
+                    logger.info(f"🚀 OVERRIDING TO MARKET: {symbol} @ ${current_price:,.4f}")
+                    # Convert to market order
+                    trade.status = 'open'
+                    trade.entry_price = current_price
+                    trade.order_type = 'MARKET'
+
+                    # Recalculate SL/TP based on market entry
+                    risk_pct = 0.02
+                    reward_pct = 0.04
+                    if trade.direction == 'long':
+                        trade.stop_loss = current_price * (1 - risk_pct)
+                        trade.take_profit = current_price * (1 + reward_pct)
+                    else:
+                        trade.stop_loss = current_price * (1 + risk_pct)
+                        trade.take_profit = current_price * (1 - reward_pct)
+
+                    self.open_trades[symbol] = trade
+                    symbols_to_fill.append(symbol)
+                    self.total_trades += 1
+
+                    # Remove from limit manager
+                    self.limit_manager.remove_limit_order(order_key)
+
+                elif override_decision == 'CANCEL_LIMIT':
+                    logger.info(f"❌ CANCELING LIMIT: {symbol} - Setup invalidated")
+                    symbols_to_cancel.append(symbol)
+                    self.limit_manager.remove_limit_order(order_key)
+
+            except Exception as e:
+                logger.error(f"Error checking limit for {symbol}: {e}")
+
+        # Remove filled/canceled limits
+        for symbol in symbols_to_fill + symbols_to_cancel:
+            if symbol in self.pending_limits:
+                del self.pending_limits[symbol]
 
     def check_and_close_trades(self):
         """Check open trades and close if SL/TP hit"""
@@ -300,14 +445,33 @@ class PaperTradingEngine:
         """Send Telegram notification for opened trade"""
         try:
             emoji = "🟢" if trade.direction == 'long' else "🔴"
+            order_emoji = "🚀" if trade.order_type == 'MARKET' else "📋"
+
+            # Build entry info based on order type
+            if trade.order_type == 'MARKET':
+                entry_info = f"Entry: ${trade.entry_price:,.4f}"
+                title = f"Paper Trade Opened: {trade.symbol}"
+            else:
+                entry_info = f"Current: ${trade.entry_price:,.4f}\n   Limit Price: ${trade.limit_price:,.4f}"
+                title = f"Limit Order Placed: {trade.symbol}"
+
+            # Confluence bar
+            score = trade.confluence_score
+            filled_bars = "█" * score
+            empty_bars = "░" * (10 - score)
+            confluence_bar = filled_bars + empty_bars
 
             message = f"""
-{emoji} **PAPER TRADE OPENED** {emoji}
+{emoji} **PAPER {trade.order_type} ORDER** {order_emoji}
 
 💰 **TRADE:**
    Symbol: {trade.symbol}
    Direction: **{trade.direction.upper()}**
-   Entry: ${trade.entry_price:,.4f}
+   {entry_info}
+   Trade Type: {trade.trade_type}
+
+⚡ **CONFLUENCE:**
+   {confluence_bar} {score}/10
 
 🛡️ **RISK MANAGEMENT:**
    Stop Loss: ${trade.stop_loss:,.4f}
@@ -324,7 +488,7 @@ class PaperTradingEngine:
 """
 
             await self.telegram_bot.send_alert(
-                title=f"Paper Trade Opened: {trade.symbol}",
+                title=title,
                 message=message,
                 level="info"
             )
@@ -385,14 +549,21 @@ class PaperTradingEngine:
         print(f"\n  📈 Trades:")
         print(f"     Total:            {self.total_trades:>12}")
         print(f"     Open:             {len(self.open_trades):>12}")
+        print(f"     Pending Limits:   {len(self.pending_limits):>12}")
         print(f"     Winners:          {self.winning_trades:>12}")
         print(f"     Losers:           {self.losing_trades:>12}")
         print(f"     Win Rate:         {win_rate:>12,.1f}%")
 
+        if self.pending_limits:
+            print(f"\n  📋 Pending Limit Orders:")
+            for symbol, trade in self.pending_limits.items():
+                print(f"     {symbol}: {trade.direction.upper()} @ ${trade.limit_price:,.4f} (Score: {trade.confluence_score}/10)")
+
         if self.open_trades:
             print(f"\n  🔓 Open Trades:")
             for symbol, trade in self.open_trades.items():
-                print(f"     {symbol}: {trade.direction.upper()} @ ${trade.entry_price:,.4f}")
+                order_emoji = "🚀" if trade.order_type == 'MARKET' else "📋"
+                print(f"     {symbol}: {order_emoji} {trade.direction.upper()} @ ${trade.entry_price:,.4f}")
 
         print(f"\n{'='*80}\n")
 
@@ -420,7 +591,10 @@ async def main():
     # Main loop
     while True:
         try:
-            # Check and close trades
+            # Check pending limits (fills & overrides)
+            engine.check_pending_limits()
+
+            # Check and close open trades
             engine.check_and_close_trades()
 
             # Display performance every 10 minutes
