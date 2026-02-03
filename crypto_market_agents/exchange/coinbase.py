@@ -24,7 +24,8 @@ class CoinbaseExchange(BaseExchange):
     Fully US-compliant exchange with public market data endpoints.
     """
 
-    BASE_URL = "https://api.coinbase.com/api/v3/brokerage"
+    # Use Coinbase Exchange (Pro) API for public market data
+    BASE_URL = "https://api.exchange.coinbase.com"
 
     def __init__(
         self,
@@ -68,10 +69,10 @@ class CoinbaseExchange(BaseExchange):
                 headers=headers
             )
 
-            # Test connection with server time
-            result = await self._request("GET", "/market/products")
-            if result and 'products' in result:
-                self.logger.info("Successfully connected to Coinbase Advanced Trade")
+            # Test connection with products endpoint
+            result = await self._request("GET", "/products")
+            if result and isinstance(result, list):
+                self.logger.info("Successfully connected to Coinbase Exchange API")
                 return True
             return False
 
@@ -110,9 +111,9 @@ class CoinbaseExchange(BaseExchange):
         For crypto-to-crypto pairs, we'll look for matches.
         """
         try:
-            result = await self._request("GET", "/market/products")
+            result = await self._request("GET", "/products")
 
-            if not result or 'products' not in result:
+            if not result or not isinstance(result, list):
                 return []
 
             symbols = []
@@ -120,16 +121,17 @@ class CoinbaseExchange(BaseExchange):
             # Coinbase uses different quote currencies
             quote_variants = ["USD", "USDT", "USDC"] if quote_currency == "USDT" else [quote_currency]
 
-            for product in result['products']:
-                product_id = product.get('product_id', '')
+            for product in result:
+                product_id = product.get('id', '')
                 # Status check - only trading products
                 status = product.get('status', '')
+                trading_disabled = product.get('trading_disabled', False)
 
-                if status == 'online':
+                if status == 'online' and not trading_disabled:
                     # Check if it ends with any of our quote variants
                     for quote in quote_variants:
                         if product_id.endswith(f"-{quote}"):
-                            # Convert to Bybit-style format (e.g., BTC-USD -> BTCUSD)
+                            # Convert to unified format (e.g., BTC-USD -> BTCUSD)
                             symbol = product_id.replace('-', '')
                             symbols.append(symbol)
                             break
@@ -153,37 +155,34 @@ class CoinbaseExchange(BaseExchange):
             product_id = self._format_symbol(symbol)
 
             # Get product ticker
-            result = await self._request("GET", f"/market/products/{product_id}/ticker")
+            ticker = await self._request("GET", f"/products/{product_id}/ticker")
 
-            if not result or 'trades' not in result:
+            if not ticker:
                 return {}
 
             # Get 24h stats
-            stats = await self._request("GET", f"/market/products/{product_id}/stats")
+            stats = await self._request("GET", f"/products/{product_id}/stats")
 
-            trades = result['trades']
-            if not trades:
-                return {}
-
-            latest_trade = trades[0]
-            last_price = float(latest_trade.get('price', 0))
+            last_price = float(ticker.get('price', 0))
+            bid = float(ticker.get('bid', last_price * 0.999))
+            ask = float(ticker.get('ask', last_price * 1.001))
 
             # Extract stats
             volume_24h = float(stats.get('volume', 0)) if stats else 0
             high_24h = float(stats.get('high', last_price)) if stats else last_price
             low_24h = float(stats.get('low', last_price)) if stats else last_price
+            open_24h = float(stats.get('open', last_price)) if stats else last_price
 
             # Calculate 24h change
-            price_24h_ago = float(stats.get('open', last_price)) if stats else last_price
             price_change_24h_pct = 0
-            if price_24h_ago > 0:
-                price_change_24h_pct = ((last_price - price_24h_ago) / price_24h_ago) * 100
+            if open_24h > 0:
+                price_change_24h_pct = ((last_price - open_24h) / open_24h) * 100
 
             return {
                 "symbol": symbol,
                 "last_price": last_price,
-                "bid": last_price * 0.999,  # Approximate
-                "ask": last_price * 1.001,  # Approximate
+                "bid": bid,
+                "ask": ask,
                 "volume_24h": volume_24h,
                 "price_change_24h_pct": price_change_24h_pct,
                 "high_24h": high_24h,
@@ -199,16 +198,16 @@ class CoinbaseExchange(BaseExchange):
         """Get ticker data for multiple symbols."""
         try:
             # Get all products
-            result = await self._request("GET", "/market/products")
+            products = await self._request("GET", "/products")
 
-            if not result or 'products' not in result:
+            if not products or not isinstance(products, list):
                 return []
 
             tickers = []
 
             # Process each product
-            for product in result['products']:
-                product_id = product.get('product_id', '')
+            for product in products:
+                product_id = product.get('id', '')
                 symbol = product_id.replace('-', '')
 
                 # Filter by symbols if provided
@@ -216,7 +215,7 @@ class CoinbaseExchange(BaseExchange):
                     continue
 
                 # Only online products
-                if product.get('status') != 'online':
+                if product.get('status') != 'online' or product.get('trading_disabled', False):
                     continue
 
                 try:
@@ -226,14 +225,14 @@ class CoinbaseExchange(BaseExchange):
                         tickers.append(ticker)
 
                     # Rate limit - small delay between requests
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.15)
 
                 except Exception as e:
                     self.logger.warning(f"Failed to get ticker for {symbol}: {e}")
                     continue
 
                 # Limit to avoid too many requests
-                if len(tickers) >= 100:
+                if len(tickers) >= 50:
                     break
 
             return tickers
@@ -263,48 +262,48 @@ class CoinbaseExchange(BaseExchange):
         try:
             product_id = self._format_symbol(symbol)
 
-            # Convert interval to Coinbase format
+            # Convert interval to Coinbase granularity (in seconds)
             granularity_map = {
-                "1": "ONE_MINUTE",
-                "5": "FIVE_MINUTE",
-                "15": "FIFTEEN_MINUTE",
-                "30": "THIRTY_MINUTE",
-                "60": "ONE_HOUR",
-                "360": "SIX_HOUR",
-                "1440": "ONE_DAY"
+                "1": 60,       # 1 minute
+                "5": 300,      # 5 minutes
+                "15": 900,     # 15 minutes
+                "30": 1800,    # 30 minutes
+                "60": 3600,    # 1 hour
+                "360": 21600,  # 6 hours
+                "1440": 86400  # 1 day
             }
 
-            granularity = granularity_map.get(str(interval), "FIVE_MINUTE")
+            granularity = granularity_map.get(str(interval), 300)
 
             # Build params
             params = {
-                "granularity": granularity,
-                "limit": min(limit, 300)  # Coinbase max is 300
+                "granularity": granularity
             }
 
             if start_time:
-                params["start"] = int(start_time.timestamp())
+                params["start"] = start_time.isoformat()
             if end_time:
-                params["end"] = int(end_time.timestamp())
+                params["end"] = end_time.isoformat()
 
             result = await self._request(
                 "GET",
-                f"/market/products/{product_id}/candles",
+                f"/products/{product_id}/candles",
                 params=params
             )
 
-            if not result or 'candles' not in result:
+            if not result or not isinstance(result, list):
                 return []
 
             klines = []
-            for candle in result['candles']:
+            # Coinbase returns: [timestamp, low, high, open, close, volume]
+            for candle in result[:limit]:
                 klines.append({
-                    "timestamp": datetime.fromtimestamp(int(candle['start']), tz=timezone.utc),
-                    "open": float(candle['open']),
-                    "high": float(candle['high']),
-                    "low": float(candle['low']),
-                    "close": float(candle['close']),
-                    "volume": float(candle['volume'])
+                    "timestamp": datetime.fromtimestamp(int(candle[0]), tz=timezone.utc),
+                    "open": float(candle[3]),
+                    "high": float(candle[2]),
+                    "low": float(candle[1]),
+                    "close": float(candle[4]),
+                    "volume": float(candle[5])
                 })
 
             # Sort chronologically
@@ -321,20 +320,20 @@ class CoinbaseExchange(BaseExchange):
         try:
             product_id = self._format_symbol(symbol)
 
+            # Coinbase order book levels: 1, 2, or 3
+            # Level 2 gives us top 50 bids and asks
             result = await self._request(
                 "GET",
-                f"/market/products/{product_id}/book",
-                params={"limit": min(limit, 100)}
+                f"/products/{product_id}/book",
+                params={"level": 2}
             )
 
-            if not result or 'pricebook' not in result:
+            if not result:
                 return {}
 
-            pricebook = result['pricebook']
-
             return {
-                "bids": [[float(b['price']), float(b['size'])] for b in pricebook.get('bids', [])],
-                "asks": [[float(a['price']), float(a['size'])] for a in pricebook.get('asks', [])],
+                "bids": [[float(b[0]), float(b[1])] for b in result.get('bids', [])[:limit]],
+                "asks": [[float(a[0]), float(a[1])] for a in result.get('asks', [])[:limit]],
                 "timestamp": datetime.now(timezone.utc)
             }
 
@@ -349,14 +348,14 @@ class CoinbaseExchange(BaseExchange):
 
             result = await self._request(
                 "GET",
-                f"/market/products/{product_id}/ticker"
+                f"/products/{product_id}/trades"
             )
 
-            if not result or 'trades' not in result:
+            if not result or not isinstance(result, list):
                 return []
 
             trades = []
-            for trade in result['trades'][:limit]:
+            for trade in result[:limit]:
                 trades.append({
                     "price": float(trade.get('price', 0)),
                     "quantity": float(trade.get('size', 0)),
