@@ -21,8 +21,8 @@ seaborn>=0.12.0
 scipy>=1.11.0
 scikit-learn>=1.3.0
 
-# Performance metrics
-empyrical>=0.5.5
+# Performance metrics (optional - incompatible with Python 3.13)
+# empyrical>=0.5.5
 
 # Configuration and utilities
 python-dotenv>=1.0.0
