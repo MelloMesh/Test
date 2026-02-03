@@ -8,7 +8,7 @@ import asyncio
 import logging
 from pathlib import Path
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 from typing import Dict, List, Optional
 import json
@@ -72,7 +72,7 @@ class HTFLiveScannerBybit:
         self.signals_found = 0
         self.signals_sent = 0
         self.htf_blocked_count = 0
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
 
         # Sent signals tracking (avoid duplicates)
         self.sent_signals = set()
@@ -102,7 +102,7 @@ class HTFLiveScannerBybit:
         """Refresh HTF context for all pairs (cached for 4 hours)"""
         logger.info("Refreshing HTF data for all pairs...")
 
-        end_date = datetime.utcnow()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=180)  # 6 months history
 
         # Fetch HTF data for all pairs
@@ -146,7 +146,7 @@ class HTFLiveScannerBybit:
                 logger.error(f"Error fetching HTF for {symbol}: {e}")
                 continue
 
-        self.htf_cache_time = datetime.utcnow()
+        self.htf_cache_time = datetime.now(timezone.utc)
         logger.info(f"✓ HTF data refreshed for {len(self.htf_cache)} pairs")
 
     def _add_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -202,7 +202,7 @@ class HTFLiveScannerBybit:
         logger.info(f"Starting LTF signal scan ({len(self.active_pairs)} pairs)...")
         logger.info(f"{'='*80}")
 
-        scan_start = datetime.utcnow()
+        scan_start = datetime.now(timezone.utc)
         signals_this_scan = 0
 
         # Get LTF signals for HTF-approved pairs
@@ -235,7 +235,7 @@ class HTFLiveScannerBybit:
                 # Send to Telegram
                 await self._send_htf_signal(symbol, ltf_signal, htf_context)
 
-        scan_duration = (datetime.utcnow() - scan_start).total_seconds()
+        scan_duration = (datetime.now(timezone.utc) - scan_start).total_seconds()
         self.scans_completed += 1
 
         logger.info(f"\n{'='*80}")
@@ -253,7 +253,7 @@ class HTFLiveScannerBybit:
         """
         try:
             # Fetch latest LTF data (30m for now)
-            end_date = datetime.utcnow()
+            end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=7)
 
             ltf_data = self.exchange.fetch_historical_data(
@@ -468,7 +468,7 @@ HTF-Aligned ({htf_context.alignment_score:.0f}% agreement)
             while True:
                 # Check if HTF cache needs refresh
                 if self.htf_cache_time is None or \
-                   (datetime.utcnow() - self.htf_cache_time).total_seconds() > self.htf_cache_duration_hours * 3600:
+                   (datetime.now(timezone.utc) - self.htf_cache_time).total_seconds() > self.htf_cache_duration_hours * 3600:
                     logger.info("HTF cache expired - refreshing...")
                     await self.refresh_htf_data()
 
@@ -489,7 +489,7 @@ HTF-Aligned ({htf_context.alignment_score:.0f}% agreement)
 
     def _print_status(self):
         """Print scanner status"""
-        runtime = (datetime.utcnow() - self.start_time).total_seconds() / 60
+        runtime = (datetime.now(timezone.utc) - self.start_time).total_seconds() / 60
 
         logger.info(f"\n📊 SCANNER STATUS")
         logger.info(f"Runtime: {runtime:.1f} minutes")
