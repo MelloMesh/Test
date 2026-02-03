@@ -45,6 +45,10 @@ class RealtimeDataStream:
         """Add callback function to be called on new candle"""
         self.candle_callbacks.append(callback)
 
+    def register_candle_callback(self, callback: Callable):
+        """Alias for add_callback - register callback for new candles"""
+        self.add_callback(callback)
+
     def _init_candle_buffer(self, instrument: str, timeframe: str, max_candles: int = 500):
         """Initialize buffer for storing candles"""
         if instrument not in self.candle_data[timeframe]:
@@ -213,10 +217,13 @@ class RealtimeDataStream:
                    f"O={candle['open']:.2f} H={candle['high']:.2f} "
                    f"L={candle['low']:.2f} C={candle['close']:.2f}")
 
-        # Call registered callbacks
+        # Call registered callbacks (handle both sync and async)
         for callback in self.candle_callbacks:
             try:
-                callback(instrument, timeframe, candle)
+                result = callback(instrument, timeframe, candle)
+                # If callback is async, schedule it
+                if asyncio.iscoroutine(result):
+                    asyncio.create_task(result)
             except Exception as e:
                 logger.error(f"Error in callback: {e}")
 
@@ -310,6 +317,39 @@ class RealtimeDataStream:
         df['ATR_14'] = tr.rolling(window=14).mean()
 
         return df
+
+    def get_candles(self, instrument: str, timeframe: str, limit: int = 500) -> List[Dict]:
+        """
+        Get candle data for instrument and timeframe
+
+        Args:
+            instrument: Instrument symbol
+            timeframe: Timeframe (e.g., '5m')
+            limit: Maximum number of candles to return
+
+        Returns:
+            List of candle dictionaries
+        """
+        if timeframe not in self.candle_data:
+            return []
+
+        if instrument not in self.candle_data[timeframe]:
+            return []
+
+        candles = list(self.candle_data[timeframe][instrument])
+        return candles[-limit:] if len(candles) > limit else candles
+
+    async def start(self):
+        """Start the data stream with configured instruments"""
+        instruments = self.config.INSTRUMENTS
+        await self.run(instruments)
+
+    async def stop(self):
+        """Stop the data stream and close WebSocket connection"""
+        self.connected = False
+        if self.ws:
+            await self.ws.close()
+            logger.info("WebSocket connection closed")
 
     async def run(self, instruments: List[str]):
         """
