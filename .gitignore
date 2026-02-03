@@ -73,6 +73,7 @@ logs/
 *_api_key*
 *_secret*
 credentials.json
+.telegram_config.json
 
 # Temporary files
 *.tmp
