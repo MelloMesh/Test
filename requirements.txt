@@ -38,3 +38,10 @@ pytest-cov>=4.1.0
 # Jupyter (for analysis)
 jupyter>=1.0.0
 ipython>=8.12.0
+
+# Real-time data streaming
+websockets>=12.0
+aiohttp>=3.9.0
+
+# Telegram bot
+python-telegram-bot>=20.7
