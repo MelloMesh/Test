@@ -121,7 +121,7 @@ class BinanceFetcher:
             ])
 
             # Convert types
-            df['timestamp'] = pd.to_datetime(df['timestamp'].astype(int), unit='ms')
+            df['timestamp'] = pd.to_datetime(df['timestamp'].astype(int), unit='ms', utc=True)
             for col in ['open', 'high', 'low', 'close', 'volume']:
                 df[col] = df[col].astype(float)
 
