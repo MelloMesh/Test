@@ -1,0 +1,40 @@
+# Crypto Perpetual Futures Multi-Timeframe Trading System
+# Core Dependencies
+
+# Data fetching and API
+requests>=2.31.0
+krakenex>=2.2.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Technical indicators
+ta-lib>=0.4.28
+pandas-ta>=0.3.14b
+
+# Data processing
+pytz>=2023.3
+python-dateutil>=2.8.2
+
+# Analysis and backtesting
+matplotlib>=3.7.0
+seaborn>=0.12.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+
+# Performance metrics
+empyrical>=0.5.5
+
+# Configuration and utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# Logging
+colorlog>=6.7.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Jupyter (for analysis)
+jupyter>=1.0.0
+ipython>=8.12.0
