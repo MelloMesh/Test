@@ -150,6 +150,11 @@ class EdgeAnalyzer:
         """Select top N signals for each timeframe"""
         top_signals = {}
 
+        # Handle empty DataFrame
+        if ranked_df.empty:
+            logger.warning("No signals to select (empty results)")
+            return {tf: [] for tf in self.config.TIMEFRAMES}
+
         for timeframe in self.config.TIMEFRAMES:
             tf_signals = ranked_df[ranked_df['timeframe'] == timeframe]
             top_n_actual = min(top_n, len(tf_signals))
@@ -188,12 +193,12 @@ class EdgeAnalyzer:
                 'total_signals_tested': len(results),
                 'signals_with_edge': len(signals_with_edge),
                 'edge_percentage': len(signals_with_edge) / len(results) if results else 0,
-                'signals_by_timeframe': ranked_df['timeframe'].value_counts().to_dict(),
+                'signals_by_timeframe': ranked_df['timeframe'].value_counts().to_dict() if not ranked_df.empty else {},
             },
             'top_signals_per_timeframe': top_signals,
             'consistency_analysis': consistency,
             'regime_performance': regime_perf,
-            'ranked_signals': ranked_df.to_dict('records')
+            'ranked_signals': ranked_df.to_dict('records') if not ranked_df.empty else []
         }
 
         # Save report
@@ -203,9 +208,12 @@ class EdgeAnalyzer:
         logger.info(f"Edge analysis report saved to {output_path}")
 
         # Save ranked signals CSV
-        csv_path = output_path.replace('.json', '.csv')
-        ranked_df.to_csv(csv_path, index=False)
-        logger.info(f"Ranked signals CSV saved to {csv_path}")
+        if not ranked_df.empty:
+            csv_path = output_path.replace('.json', '.csv')
+            ranked_df.to_csv(csv_path, index=False)
+            logger.info(f"Ranked signals CSV saved to {csv_path}")
+        else:
+            logger.warning("No signals to save to CSV (empty results)")
 
         return report
 
