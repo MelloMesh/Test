@@ -24,6 +24,7 @@ from data.binance_fetcher import BinanceFetcher
 from signals.signal_discovery_htf import get_htf_aware_signals
 from trading.telegram_bot import TradingTelegramBot, load_telegram_credentials
 from trading.notification_manager import NotificationManager
+from trading.trade_review_agent import get_trade_review_agent
 from signals.limit_order_manager import get_limit_manager
 from signals.confluence_scorer import get_confluence_scorer
 
@@ -97,6 +98,12 @@ class PaperTradingEngine:
         if self.telegram_bot:
             self.notification_manager = NotificationManager(self.telegram_bot, self)
             logger.info("✅ Notification manager initialized")
+
+        # Initialize trade review agent (requires telegram_bot)
+        self.trade_review_agent = None
+        if self.telegram_bot:
+            self.trade_review_agent = get_trade_review_agent(self, self.telegram_bot)
+            logger.info("✅ Trade review agent initialized")
 
         # Results file
         self.results_file = "paper_trading_results.json"
@@ -464,6 +471,10 @@ class PaperTradingEngine:
         if self.notification_manager:
             self.notification_manager.track_trade_closed(trade)
 
+        # Analyze trade with AI agent
+        if self.trade_review_agent:
+            asyncio.create_task(self.trade_review_agent.analyze_trade(trade))
+
         # Log
         emoji = "🟢" if pnl > 0 else "🔴"
         logger.info(f"\n{'='*80}")
@@ -777,6 +788,11 @@ async def main():
     if engine.notification_manager:
         await engine.notification_manager.start()
         logger.info("✅ Notification manager tasks started")
+
+    # Start trade review agent background tasks
+    if engine.trade_review_agent:
+        await engine.trade_review_agent.start()
+        logger.info("✅ Trade review agent started")
 
     # Display current performance
     engine.display_performance()
