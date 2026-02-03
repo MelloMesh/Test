@@ -1,0 +1,270 @@
+"""
+Orchestrator - Manages all agents and generates consolidated reports.
+"""
+
+import asyncio
+import json
+from pathlib import Path
+from datetime import datetime, timezone
+from typing import List, Optional
+import logging
+
+from .config import SystemConfig
+from .exchange.adapter import ExchangeFactory
+from .exchange.base import BaseExchange
+from .agents.price_action import PriceActionAgent
+from .agents.momentum import MomentumAgent
+from .agents.volume_spike import VolumeSpikeAgent
+from .agents.signal_synthesis import SignalSynthesisAgent
+from .schemas import SystemReport, TradingSignal
+from .utils.logging import setup_logger
+
+
+class AgentOrchestrator:
+    """
+    Orchestrator for managing multiple agents and generating consolidated reports.
+    """
+
+    def __init__(self, config: SystemConfig):
+        """
+        Initialize the orchestrator.
+
+        Args:
+            config: System configuration
+        """
+        self.config = config
+        self.logger = setup_logger(
+            "Orchestrator",
+            level=config.log_level,
+            log_file=config.log_file
+        )
+
+        self.exchange: Optional[BaseExchange] = None
+        self.agents: List = []
+        self.running = False
+
+        # Agent instances
+        self.price_action_agent: Optional[PriceActionAgent] = None
+        self.momentum_agent: Optional[MomentumAgent] = None
+        self.volume_spike_agent: Optional[VolumeSpikeAgent] = None
+        self.signal_synthesis_agent: Optional[SignalSynthesisAgent] = None
+
+        # Report generation
+        self.report_task: Optional[asyncio.Task] = None
+        self.output_dir = Path(config.output_dir)
+        self.output_dir.mkdir(exist_ok=True)
+
+    async def initialize(self) -> bool:
+        """
+        Initialize the orchestrator and all agents.
+
+        Returns:
+            True if initialization successful
+        """
+        self.logger.info("Initializing agent orchestrator...")
+
+        try:
+            # Create exchange adapter
+            self.exchange = ExchangeFactory.create(self.config.exchange)
+
+            # Check US accessibility
+            accessibility = self.exchange.check_us_accessibility()
+            if not accessibility["accessible"]:
+                self.logger.warning(
+                    f"Exchange accessibility warning: {accessibility['notes']}"
+                )
+                self.logger.info(
+                    f"Recommended alternatives: {', '.join(accessibility.get('recommended_alternatives', []))}"
+                )
+
+            # Connect to exchange
+            if not await self.exchange.connect():
+                self.logger.error("Failed to connect to exchange")
+                return False
+
+            # Initialize agents
+            if self.config.price_action.enabled:
+                self.price_action_agent = PriceActionAgent(
+                    self.exchange,
+                    self.config.price_action
+                )
+                self.agents.append(self.price_action_agent)
+
+            if self.config.momentum.enabled:
+                self.momentum_agent = MomentumAgent(
+                    self.exchange,
+                    self.config.momentum
+                )
+                self.agents.append(self.momentum_agent)
+
+            if self.config.volume.enabled:
+                self.volume_spike_agent = VolumeSpikeAgent(
+                    self.exchange,
+                    self.config.volume
+                )
+                self.agents.append(self.volume_spike_agent)
+
+            # Signal synthesis agent requires other agents
+            if self.config.signal_synthesis.enabled:
+                if not all([
+                    self.price_action_agent,
+                    self.momentum_agent,
+                    self.volume_spike_agent
+                ]):
+                    self.logger.warning(
+                        "Signal synthesis agent requires all other agents to be enabled"
+                    )
+                else:
+                    self.signal_synthesis_agent = SignalSynthesisAgent(
+                        self.exchange,
+                        self.config.signal_synthesis,
+                        self.price_action_agent,
+                        self.momentum_agent,
+                        self.volume_spike_agent
+                    )
+                    self.agents.append(self.signal_synthesis_agent)
+
+            self.logger.info(f"Initialized {len(self.agents)} agents")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Initialization failed: {e}", exc_info=True)
+            return False
+
+    async def start(self):
+        """Start all agents and the orchestrator."""
+        if self.running:
+            self.logger.warning("Orchestrator is already running")
+            return
+
+        self.running = True
+        self.logger.info("Starting agent orchestrator...")
+
+        # Start all agents in parallel
+        start_tasks = [agent.start() for agent in self.agents]
+        await asyncio.gather(*start_tasks)
+
+        # Start report generation task
+        self.report_task = asyncio.create_task(self._report_loop())
+
+        self.logger.info("All agents started successfully")
+
+    async def stop(self):
+        """Stop all agents and the orchestrator."""
+        if not self.running:
+            return
+
+        self.running = False
+        self.logger.info("Stopping agent orchestrator...")
+
+        # Stop report task
+        if self.report_task:
+            self.report_task.cancel()
+            try:
+                await self.report_task
+            except asyncio.CancelledError:
+                pass
+
+        # Stop all agents in parallel
+        stop_tasks = [agent.stop() for agent in self.agents]
+        await asyncio.gather(*stop_tasks, return_exceptions=True)
+
+        # Disconnect from exchange
+        if self.exchange:
+            await self.exchange.disconnect()
+
+        self.logger.info("Orchestrator stopped")
+
+    async def _report_loop(self):
+        """Periodic report generation loop."""
+        while self.running:
+            try:
+                await self._generate_report()
+                await asyncio.sleep(self.config.signal_synthesis.update_interval)
+
+            except asyncio.CancelledError:
+                break
+
+            except Exception as e:
+                self.logger.error(f"Error generating report: {e}", exc_info=True)
+                await asyncio.sleep(60)
+
+    async def _generate_report(self):
+        """Generate and save a consolidated system report."""
+        try:
+            # Collect trading signals
+            trading_signals = []
+            if self.signal_synthesis_agent:
+                signals = self.signal_synthesis_agent.get_latest_signals()
+                trading_signals = signals[:20]  # Top 20 signals
+
+            # Collect agent statuses
+            agent_statuses = [agent.get_status() for agent in self.agents]
+
+            # Create system report
+            report = SystemReport(
+                timestamp=datetime.now(timezone.utc),
+                active_agents=len([a for a in self.agents if a.running]),
+                trading_signals=trading_signals,
+                agent_statuses=agent_statuses
+            )
+
+            # Save report to file
+            timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            report_file = self.output_dir / f"report_{timestamp_str}.json"
+
+            with open(report_file, "w") as f:
+                f.write(report.to_json())
+
+            # Also save the latest report
+            latest_file = self.output_dir / "latest_report.json"
+            with open(latest_file, "w") as f:
+                f.write(report.to_json())
+
+            # Log summary
+            self.logger.info(
+                f"Generated report: {len(trading_signals)} trading signals, "
+                f"{report.active_agents}/{len(self.agents)} agents active"
+            )
+
+            # Log top signals
+            if trading_signals:
+                self.logger.info("Top trading signals:")
+                for i, signal in enumerate(trading_signals[:5], 1):
+                    self.logger.info(
+                        f"  {i}. {signal.asset} {signal.direction} @ {signal.entry:.8f} "
+                        f"(confidence: {signal.confidence:.2f}) - {signal.rationale}"
+                    )
+
+        except Exception as e:
+            self.logger.error(f"Failed to generate report: {e}", exc_info=True)
+
+    async def run_forever(self):
+        """
+        Run the orchestrator indefinitely.
+
+        This method will block until stopped.
+        """
+        try:
+            await self.start()
+
+            # Wait for stop signal
+            while self.running:
+                await asyncio.sleep(1)
+
+        except KeyboardInterrupt:
+            self.logger.info("Received keyboard interrupt")
+
+        finally:
+            await self.stop()
+
+    def get_latest_signals(self) -> List[TradingSignal]:
+        """
+        Get the latest trading signals.
+
+        Returns:
+            List of trading signals
+        """
+        if self.signal_synthesis_agent:
+            return self.signal_synthesis_agent.get_latest_signals()
+        return []
