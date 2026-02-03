@@ -10,7 +10,7 @@ import os
 @dataclass
 class ExchangeConfig:
     """Configuration for exchange connection."""
-    name: str = "bybit"
+    name: str = "coinbase"  # Default to US-compliant exchange
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
     testnet: bool = False

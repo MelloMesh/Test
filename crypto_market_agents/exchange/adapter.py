@@ -7,6 +7,7 @@ import logging
 
 from .base import BaseExchange
 from .bybit import BybitExchange
+from .coinbase import CoinbaseExchange
 from ..config import ExchangeConfig
 
 
@@ -52,9 +53,20 @@ class ExchangeFactory:
                 timeout=config.timeout
             )
 
+        elif exchange_name == "coinbase":
+            logger.info(
+                "Using Coinbase Advanced Trade - fully US-compliant and regulated."
+            )
+
+            return CoinbaseExchange(
+                api_key=config.api_key,
+                api_secret=config.api_secret,
+                rate_limit=config.rate_limit_per_second,
+                max_retries=config.max_retries,
+                timeout=config.timeout
+            )
+
         # Add more exchanges here as needed:
-        # elif exchange_name == "coinbase":
-        #     return CoinbaseExchange(...)
         # elif exchange_name == "kraken":
         #     return KrakenExchange(...)
         # elif exchange_name == "gemini":

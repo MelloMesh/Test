@@ -2,6 +2,10 @@
 
 A modular, production-ready system of autonomous agents for cryptocurrency market analysis. Built with async Python, this system analyzes live market data across multiple dimensions to generate consolidated trading insights and risk-managed signals.
 
+## 🇺🇸 US-Compliant by Default
+
+**This system now defaults to Coinbase Advanced Trade**, which is fully US-compliant and regulated by FinCEN. No API keys required for public market data. [See Coinbase setup guide](COINBASE_SETUP.md)
+
 ## Overview
 
 The system consists of four specialized agents that operate in parallel, each focusing on a specific analytical domain:
@@ -42,7 +46,7 @@ All agents are independently callable and share data via structured JSON schemas
                                               ┌──────▼──────┐
                                               │  Exchange   │
                                               │   API       │
-                                              │ (Bybit/etc) │
+                                              │(Coinbase/etc)│
                                               └─────────────┘
 ```
 
@@ -68,11 +72,28 @@ pip install aiohttp
 
 3. (Optional) Set environment variables:
 ```bash
-export EXCHANGE_NAME=bybit
-export EXCHANGE_API_KEY=your_api_key_here      # Optional for public endpoints
-export EXCHANGE_API_SECRET=your_api_secret_here # Optional for public endpoints
+# System defaults to Coinbase (US-compliant)
+export EXCHANGE_NAME=coinbase
 export LOG_LEVEL=INFO
+
+# API keys are optional for public market data
+export EXCHANGE_API_KEY=your_key_here     # Optional
+export EXCHANGE_API_SECRET=your_secret_here # Optional
 ```
+
+## Quick Start (US Users)
+
+**Fastest way to get started with Coinbase:**
+
+```bash
+# Install dependencies
+pip install aiohttp
+
+# Run with Coinbase (default)
+python run_with_coinbase.py
+```
+
+See [COINBASE_SETUP.md](COINBASE_SETUP.md) for detailed instructions.
 
 ## Usage
 
