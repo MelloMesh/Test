@@ -17,7 +17,7 @@ import json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from analysis.higher_timeframe_analyzer import HigherTimeframeAnalyzer
-from backtest.backtest_engine_htf import HTFBacktestEngine
+from backtest.backtest_engine_htf import HTFAwareBacktestEngine
 from signals.signal_discovery_htf import get_htf_aware_signals
 from data.kraken_fetcher import KrakenFetcher
 
@@ -234,7 +234,7 @@ class HTFBacktestRunner:
     def __init__(self, cache_dir: str = "backtest_results"):
         self.fetcher = KrakenFetcher()
         self.htf_analyzer = HigherTimeframeAnalyzer()
-        self.backtest_engine = HTFBacktestEngine()
+        self.backtest_engine = HTFAwareBacktestEngine()
         self.viewer = BacktestResultsViewer()
 
         # Results caching
