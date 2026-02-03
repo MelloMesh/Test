@@ -426,6 +426,189 @@ class HTFAwareSignalDiscovery:
 
         return signals
 
+    def generate_mean_reversion_signals(self) -> List[HTFAwareSignalHypothesis]:
+        """
+        Generate mean reversion signals
+        These trade AGAINST HTF bias at key levels (resistance in bullish, support in bearish)
+        """
+        signals = []
+
+        # MEAN REVERSION LONG (Buy at support in BEARISH HTF)
+        signals.append(HTFAwareSignalHypothesis(
+            id=self._generate_id("30m", "long", "mean_reversion"),
+            name="Mean_Reversion_Support_Bounce_Long",
+            timeframe="30m",
+            direction="long",
+            description="Buy at weekly/daily support in bearish HTF - counter-trend scalp",
+            entry_conditions=[
+                "Price within 1% of weekly or daily support",
+                "RSI < 30 (oversold)",
+                "Bullish divergence on RSI or MACD",
+                "Rejection wick at support (hammer, bullish engulfing)",
+                "Volume spike on bounce",
+                "HTF bearish (trading against trend)"
+            ],
+            stop_loss="Below support level (-1% or tight stop)",
+            target="Next resistance or 50% retracement (+2-4%)",
+            typical_hold_minutes=(30, 240),
+            slippage_pips=2.0,
+            expected_accuracy=0.55,  # Lower accuracy (counter-trend)
+            signal_type="mean_reversion",
+            indicators_used=["RSI", "MACD", "Support/Resistance", "Volume"],
+            regime_best="ranging",
+            htf_required_bias="bearish",  # Buy in bearish trend at support
+            htf_min_alignment=0.0,  # Don't care about alignment for mean reversion
+            htf_min_strength=0.0,
+            funding_rate_consideration=False,
+            volume_required=True
+        ))
+
+        # MEAN REVERSION SHORT (Sell at resistance in BULLISH HTF)
+        signals.append(HTFAwareSignalHypothesis(
+            id=self._generate_id("30m", "short", "mean_reversion"),
+            name="Mean_Reversion_Resistance_Fade_Short",
+            timeframe="30m",
+            direction="short",
+            description="Short at weekly/daily resistance in bullish HTF - counter-trend scalp",
+            entry_conditions=[
+                "Price within 1% of weekly or daily resistance",
+                "RSI > 70 (overbought)",
+                "Bearish divergence on RSI or MACD",
+                "Rejection wick at resistance (shooting star, bearish engulfing)",
+                "Volume spike on rejection",
+                "HTF bullish (trading against trend)"
+            ],
+            stop_loss="Above resistance level (+1% or tight stop)",
+            target="Next support or 50% retracement (-2-4%)",
+            typical_hold_minutes=(30, 240),
+            slippage_pips=2.0,
+            expected_accuracy=0.55,  # Lower accuracy (counter-trend)
+            signal_type="mean_reversion",
+            indicators_used=["RSI", "MACD", "Support/Resistance", "Volume"],
+            regime_best="ranging",
+            htf_required_bias="bullish",  # Short in bullish trend at resistance
+            htf_min_alignment=0.0,
+            htf_min_strength=0.0,
+            funding_rate_consideration=False,
+            volume_required=True
+        ))
+
+        # RSI OVERSOLD BOUNCE (Any HTF)
+        signals.append(HTFAwareSignalHypothesis(
+            id=self._generate_id("15m", "long", "mean_reversion"),
+            name="RSI_Extreme_Oversold_Bounce_Long",
+            timeframe="15m",
+            direction="long",
+            description="Extreme oversold bounce - RSI < 20",
+            entry_conditions=[
+                "RSI < 20 (extreme oversold)",
+                "Price at or near support level",
+                "Bullish divergence forming",
+                "RSI starting to turn up from extreme",
+                "Volume increasing on upturn"
+            ],
+            stop_loss="Below recent swing low (-1.5%)",
+            target="RSI 50 or resistance (+3-5%)",
+            typical_hold_minutes=(15, 120),
+            slippage_pips=1.5,
+            expected_accuracy=0.62,
+            signal_type="mean_reversion",
+            indicators_used=["RSI", "Volume", "Support"],
+            regime_best="volatile",
+            htf_required_bias="any",  # Works in any HTF
+            htf_min_alignment=0.0,
+            htf_min_strength=0.0,
+            funding_rate_consideration=False,
+            volume_required=True
+        ))
+
+        # RSI OVERBOUGHT FADE (Any HTF)
+        signals.append(HTFAwareSignalHypothesis(
+            id=self._generate_id("15m", "short", "mean_reversion"),
+            name="RSI_Extreme_Overbought_Fade_Short",
+            timeframe="15m",
+            direction="short",
+            description="Extreme overbought fade - RSI > 80",
+            entry_conditions=[
+                "RSI > 80 (extreme overbought)",
+                "Price at or near resistance level",
+                "Bearish divergence forming",
+                "RSI starting to turn down from extreme",
+                "Volume increasing on downturn"
+            ],
+            stop_loss="Above recent swing high (+1.5%)",
+            target="RSI 50 or support (-3-5%)",
+            typical_hold_minutes=(15, 120),
+            slippage_pips=1.5,
+            expected_accuracy=0.62,
+            signal_type="mean_reversion",
+            indicators_used=["RSI", "Volume", "Resistance"],
+            regime_best="volatile",
+            htf_required_bias="any",
+            htf_min_alignment=0.0,
+            htf_min_strength=0.0,
+            funding_rate_consideration=False,
+            volume_required=True
+        ))
+
+        # BOLLINGER BAND BOUNCE (Mean reversion to middle)
+        signals.append(HTFAwareSignalHypothesis(
+            id=self._generate_id("15m", "long", "mean_reversion"),
+            name="Bollinger_Lower_Band_Bounce_Long",
+            timeframe="15m",
+            direction="long",
+            description="Price touching lower Bollinger Band - reversion to mean",
+            entry_conditions=[
+                "Price touches or pierces lower Bollinger Band",
+                "RSI < 35",
+                "Bullish reversal candle pattern",
+                "Bollinger Bands not expanding (stable volatility)"
+            ],
+            stop_loss="Below lower Bollinger Band (-1%)",
+            target="Middle Bollinger Band (+2-3%)",
+            typical_hold_minutes=(30, 180),
+            slippage_pips=1.5,
+            expected_accuracy=0.65,
+            signal_type="mean_reversion",
+            indicators_used=["Bollinger Bands", "RSI"],
+            regime_best="ranging",
+            htf_required_bias="any",
+            htf_min_alignment=0.0,
+            htf_min_strength=0.0,
+            funding_rate_consideration=False,
+            volume_required=False
+        ))
+
+        signals.append(HTFAwareSignalHypothesis(
+            id=self._generate_id("15m", "short", "mean_reversion"),
+            name="Bollinger_Upper_Band_Fade_Short",
+            timeframe="15m",
+            direction="short",
+            description="Price touching upper Bollinger Band - reversion to mean",
+            entry_conditions=[
+                "Price touches or pierces upper Bollinger Band",
+                "RSI > 65",
+                "Bearish reversal candle pattern",
+                "Bollinger Bands not expanding (stable volatility)"
+            ],
+            stop_loss="Above upper Bollinger Band (+1%)",
+            target="Middle Bollinger Band (-2-3%)",
+            typical_hold_minutes=(30, 180),
+            slippage_pips=1.5,
+            expected_accuracy=0.65,
+            signal_type="mean_reversion",
+            indicators_used=["Bollinger Bands", "RSI"],
+            regime_best="ranging",
+            htf_required_bias="any",
+            htf_min_alignment=0.0,
+            htf_min_strength=0.0,
+            funding_rate_consideration=False,
+            volume_required=False
+        ))
+
+        logger.info(f"Generated {len(signals)} mean reversion signals")
+        return signals
+
     def generate_all_htf_aware_signals(self) -> List[HTFAwareSignalHypothesis]:
         """Generate all HTF-aware signals across LTF execution timeframes"""
         all_signals = []
@@ -452,6 +635,10 @@ class HTFAwareSignalDiscovery:
 
         logger.info("Generating 5m SHORT signals (bearish HTF required)...")
         all_signals.extend(self.generate_5m_short_signals())
+
+        # MEAN REVERSION signals (counter-trend at key levels)
+        logger.info("Generating MEAN REVERSION signals (counter-trend)...")
+        all_signals.extend(self.generate_mean_reversion_signals())
 
         self.hypotheses = all_signals
         logger.info(f"Generated {len(all_signals)} HTF-aware signal hypotheses")

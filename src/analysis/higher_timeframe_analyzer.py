@@ -128,9 +128,14 @@ class HigherTimeframeAnalyzer:
             weekly_trend, daily_trend, h4_trend
         )
 
-        # Determine what types of trades to allow
+        # Get current price for location-aware logic
+        current_price = h4_data['close'].iloc[-1]
+
+        # Determine what types of trades to allow (location-aware)
         allow_longs, allow_shorts = self._determine_trade_permissions(
-            primary_bias, bias_strength, regime
+            primary_bias, bias_strength, regime, current_price,
+            weekly_support, weekly_resistance,
+            daily_support, daily_resistance
         )
 
         context = HTFContext(
@@ -300,22 +305,64 @@ class HigherTimeframeAnalyzer:
     def _identify_key_levels(self, data: pd.DataFrame) -> Tuple[Optional[float], Optional[float]]:
         """
         Identify key support and resistance levels
-        Uses recent swing highs/lows
+        Uses swing highs/lows with pivot point detection
 
         Returns: (support, resistance)
         """
         if len(data) < 20:
             return None, None
 
-        # Find recent swing lows (support)
-        lows = data['low'].iloc[-50:].values
-        support = np.percentile(lows, 10)  # Bottom 10% of recent lows
+        # Use larger lookback for more significant levels
+        lookback = min(100, len(data))
+        recent_data = data.iloc[-lookback:]
 
-        # Find recent swing highs (resistance)
-        highs = data['high'].iloc[-50:].values
-        resistance = np.percentile(highs, 90)  # Top 10% of recent highs
+        # Find swing lows (support) - local minima
+        swing_lows = []
+        for i in range(2, len(recent_data) - 2):
+            if (recent_data['low'].iloc[i] < recent_data['low'].iloc[i-1] and
+                recent_data['low'].iloc[i] < recent_data['low'].iloc[i-2] and
+                recent_data['low'].iloc[i] < recent_data['low'].iloc[i+1] and
+                recent_data['low'].iloc[i] < recent_data['low'].iloc[i+2]):
+                swing_lows.append(recent_data['low'].iloc[i])
 
-        return float(support), float(resistance)
+        # Find swing highs (resistance) - local maxima
+        swing_highs = []
+        for i in range(2, len(recent_data) - 2):
+            if (recent_data['high'].iloc[i] > recent_data['high'].iloc[i-1] and
+                recent_data['high'].iloc[i] > recent_data['high'].iloc[i-2] and
+                recent_data['high'].iloc[i] > recent_data['high'].iloc[i+1] and
+                recent_data['high'].iloc[i] > recent_data['high'].iloc[i+2]):
+                swing_highs.append(recent_data['high'].iloc[i])
+
+        current_price = recent_data['close'].iloc[-1]
+
+        # Find nearest support (below current price)
+        support = None
+        if swing_lows:
+            below_price = [low for low in swing_lows if low < current_price]
+            if below_price:
+                support = max(below_price)  # Closest support below
+            else:
+                # No swing low below price, use percentile
+                support = np.percentile(recent_data['low'].values, 5)
+        else:
+            # Fallback to percentile if no swings found
+            support = np.percentile(recent_data['low'].values, 10)
+
+        # Find nearest resistance (above current price)
+        resistance = None
+        if swing_highs:
+            above_price = [high for high in swing_highs if high > current_price]
+            if above_price:
+                resistance = min(above_price)  # Closest resistance above
+            else:
+                # No swing high above price, use percentile
+                resistance = np.percentile(recent_data['high'].values, 95)
+        else:
+            # Fallback to percentile
+            resistance = np.percentile(recent_data['high'].values, 90)
+
+        return float(support) if support else None, float(resistance) if resistance else None
 
     def _calculate_alignment_score(
         self,
@@ -349,13 +396,152 @@ class HigherTimeframeAnalyzer:
         # Weak alignment (neutrals involved)
         return 50.0
 
+    def check_price_location(
+        self,
+        current_price: float,
+        support: Optional[float],
+        resistance: Optional[float],
+        threshold_pct: float = 0.015
+    ) -> str:
+        """
+        Check if price is at support, resistance, or mid-range
+
+        Args:
+            current_price: Current market price
+            support: Support level
+            resistance: Resistance level
+            threshold_pct: Percentage threshold (default 1.5%)
+
+        Returns: 'at_support', 'at_resistance', 'mid_range'
+        """
+        if support and abs(current_price - support) / current_price < threshold_pct:
+            return 'at_support'
+        elif resistance and abs(current_price - resistance) / current_price < threshold_pct:
+            return 'at_resistance'
+        else:
+            return 'mid_range'
+
     def _determine_trade_permissions(
+        self,
+        primary_bias: str,
+        bias_strength: float,
+        regime: str,
+        current_price: float,
+        weekly_support: Optional[float],
+        weekly_resistance: Optional[float],
+        daily_support: Optional[float],
+        daily_resistance: Optional[float]
+    ) -> Tuple[bool, bool]:
+        """
+        Determine what types of trades to allow based on HTF bias AND price location
+
+        Key Logic:
+        - Bullish HTF + at support = LONG only (trend continuation)
+        - Bullish HTF + at resistance = SHORT allowed (mean reversion)
+        - Bullish HTF + mid-range = LONG only (trend following)
+        - Bearish HTF + at resistance = SHORT only (trend continuation)
+        - Bearish HTF + at support = LONG allowed (mean reversion)
+        - Bearish HTF + mid-range = SHORT only (trend following)
+
+        Returns: (allow_longs, allow_shorts)
+        """
+        # Don't trade in very choppy markets
+        if regime == 'choppy' and bias_strength < 30:
+            return False, False
+
+        # Check price location relative to weekly levels (most important)
+        weekly_location = self.check_price_location(current_price, weekly_support, weekly_resistance)
+
+        # Also check daily levels for finer granularity
+        daily_location = self.check_price_location(current_price, daily_support, daily_resistance)
+
+        # Default: no trades
+        allow_longs = False
+        allow_shorts = False
+
+        # BULLISH HTF BIAS
+        if primary_bias == 'bullish':
+
+            # At weekly resistance - allow mean reversion shorts
+            if weekly_location == 'at_resistance':
+                allow_shorts = True  # Countertrend mean reversion
+                allow_longs = False  # Don't buy at resistance
+
+            # At weekly support - strong long signal
+            elif weekly_location == 'at_support':
+                allow_longs = True  # Trend continuation from support
+                allow_shorts = False
+
+            # Mid-range - check daily levels
+            else:
+                if daily_location == 'at_resistance':
+                    # At daily resistance in bullish HTF
+                    allow_shorts = True  # Scalp short for pullback
+                    allow_longs = False
+                elif daily_location == 'at_support':
+                    # At daily support in bullish HTF
+                    allow_longs = True  # Buy the dip
+                    allow_shorts = False
+                else:
+                    # Mid-range on both - only trend-following longs
+                    allow_longs = True
+                    allow_shorts = False
+
+        # BEARISH HTF BIAS
+        elif primary_bias == 'bearish':
+
+            # At weekly support - allow mean reversion longs
+            if weekly_location == 'at_support':
+                allow_longs = True  # Countertrend mean reversion
+                allow_shorts = False  # Don't sell at support
+
+            # At weekly resistance - strong short signal
+            elif weekly_location == 'at_resistance':
+                allow_shorts = True  # Trend continuation from resistance
+                allow_longs = False
+
+            # Mid-range - check daily levels
+            else:
+                if daily_location == 'at_support':
+                    # At daily support in bearish HTF
+                    allow_longs = True  # Scalp long for bounce
+                    allow_shorts = False
+                elif daily_location == 'at_resistance':
+                    # At daily resistance in bearish HTF
+                    allow_shorts = True  # Sell the rip
+                    allow_longs = False
+                else:
+                    # Mid-range on both - only trend-following shorts
+                    allow_shorts = True
+                    allow_longs = False
+
+        # NEUTRAL HTF BIAS - Range trading
+        else:
+            if regime == 'ranging':
+                # In ranging neutral market, trade the range
+                if weekly_location == 'at_support' or daily_location == 'at_support':
+                    allow_longs = True  # Buy at support
+                elif weekly_location == 'at_resistance' or daily_location == 'at_resistance':
+                    allow_shorts = True  # Sell at resistance
+                else:
+                    # Mid-range in neutral ranging = wait
+                    allow_longs = False
+                    allow_shorts = False
+            else:
+                # Neutral but not ranging (choppy/volatile) - allow both with caution
+                allow_longs = True
+                allow_shorts = True
+
+        return allow_longs, allow_shorts
+
+    def _old_determine_trade_permissions(
         self,
         primary_bias: str,
         bias_strength: float,
         regime: str
     ) -> Tuple[bool, bool]:
         """
+        OLD METHOD - Kept for reference
         Determine what types of trades to allow
 
         Returns: (allow_longs, allow_shorts)
