@@ -55,7 +55,7 @@ git clone <your-repo-url>
 cd Test
 
 # Install dependencies
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 
 # Set up environment variables (optional)
 cp .env.example .env
@@ -81,26 +81,32 @@ DAILY_LOSS_LIMIT = -0.03  # -3% daily circuit breaker
 
 ### 3. Run System
 
-#### Full Workflow (Discovery → Data → Backtest → Analysis)
+#### Option A: Using Convenience Script (Recommended)
 ```bash
-python main.py --mode full
+# Full workflow
+./run.sh --mode full
+
+# Quick mode
+./run.sh --mode full --quick
+
+# Individual phases
+./run.sh --mode discovery
+./run.sh --mode backtest --no-fetch
+./run.sh --mode analysis
 ```
 
-#### Quick Mode (Test Subset)
+#### Option B: Direct Python Execution
 ```bash
-python main.py --mode full --quick
-```
+# Full Workflow (Discovery → Data → Backtest → Analysis)
+python3 main.py --mode full
 
-#### Individual Phases
-```bash
-# Signal Discovery Only
-python main.py --mode discovery
+# Quick Mode (Test Subset)
+python3 main.py --mode full --quick
 
-# Backtesting Only (requires existing data)
-python main.py --mode backtest --no-fetch
-
-# Edge Analysis Only
-python main.py --mode analysis
+# Individual Phases
+python3 main.py --mode discovery        # Signal Discovery Only
+python3 main.py --mode backtest --no-fetch  # Backtesting Only
+python3 main.py --mode analysis         # Edge Analysis Only
 ```
 
 ---
@@ -111,6 +117,7 @@ python main.py --mode analysis
 Test/
 ├── config.py                          # System configuration
 ├── main.py                            # Main orchestration script
+├── run.sh                             # Convenience script (python3)
 ├── requirements.txt                   # Python dependencies
 ├── README.md                          # This file
 │
@@ -403,17 +410,17 @@ pytest tests/ -v
 
 ### Validate Data Fetching
 ```bash
-python src/data/kraken_fetcher.py
+python3 src/data/kraken_fetcher.py
 ```
 
 ### Test Signal Discovery
 ```bash
-python src/signals/signal_discovery.py
+python3 src/signals/signal_discovery.py
 ```
 
 ### Test Backtesting Engine
 ```bash
-python src/backtest/backtest_engine.py
+python3 src/backtest/backtest_engine.py
 ```
 
 ---
