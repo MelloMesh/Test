@@ -66,6 +66,10 @@ class EdgeAnalyzer:
 
     def rank_signals(self, results: List[Dict]) -> pd.DataFrame:
         """Rank signals by overall performance"""
+        if not results:
+            logger.warning("No results to rank")
+            return pd.DataFrame()
+
         df = pd.DataFrame(results)
 
         # Calculate composite score
