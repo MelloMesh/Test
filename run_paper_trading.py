@@ -282,6 +282,10 @@ class PaperTradingEngine:
                     symbols_to_fill.append(symbol)
                     self.total_trades += 1
 
+                    # Send Telegram notification
+                    if self.telegram_bot:
+                        asyncio.create_task(self._send_limit_filled_notification(trade))
+
                     # Remove from limit manager
                     self.limit_manager.remove_limit_order(order_key)
                     continue
@@ -298,6 +302,9 @@ class PaperTradingEngine:
 
                 if override_decision == 'CANCEL_LIMIT_GO_MARKET':
                     logger.info(f"🚀 OVERRIDING TO MARKET: {symbol} @ ${current_price:,.4f}")
+
+                    old_limit_price = trade.limit_price
+
                     # Convert to market order
                     trade.status = 'open'
                     trade.entry_price = current_price
@@ -317,12 +324,21 @@ class PaperTradingEngine:
                     symbols_to_fill.append(symbol)
                     self.total_trades += 1
 
+                    # Send Telegram notification
+                    if self.telegram_bot:
+                        asyncio.create_task(self._send_limit_override_notification(trade, old_limit_price, current_price))
+
                     # Remove from limit manager
                     self.limit_manager.remove_limit_order(order_key)
 
                 elif override_decision == 'CANCEL_LIMIT':
                     logger.info(f"❌ CANCELING LIMIT: {symbol} - Setup invalidated")
                     symbols_to_cancel.append(symbol)
+
+                    # Send Telegram notification
+                    if self.telegram_bot:
+                        asyncio.create_task(self._send_limit_cancelled_notification(trade, current_price))
+
                     self.limit_manager.remove_limit_order(order_key)
 
             except Exception as e:
@@ -495,16 +511,153 @@ class PaperTradingEngine:
         except Exception as e:
             logger.error(f"Failed to send Telegram notification: {e}")
 
+    async def _send_limit_filled_notification(self, trade: PaperTrade):
+        """Send notification when limit order fills"""
+        try:
+            emoji = "🟢" if trade.direction == 'long' else "🔴"
+
+            # Calculate time pending
+            time_pending = (datetime.now(timezone.utc) - trade.entry_time).total_seconds() / 60
+
+            message = f"""
+✅ **LIMIT ORDER FILLED** ✅
+
+💰 **TRADE:**
+   Symbol: {trade.symbol}
+   Direction: **{trade.direction.upper()}**
+   Entry: ${trade.entry_price:,.4f}
+   Trade Type: {trade.trade_type}
+
+⏱️ **TIMING:**
+   Time Pending: {time_pending:.0f} minutes
+
+🛡️ **RISK MANAGEMENT:**
+   Stop Loss: ${trade.stop_loss:,.4f}
+   Take Profit: ${trade.take_profit:,.4f}
+   Position Size: ${trade.position_size:,.2f}
+
+💼 **ACCOUNT:**
+   Current Capital: ${self.current_capital:,.2f}
+   Open Trades: {len(self.open_trades)}
+"""
+
+            await self.telegram_bot.send_alert(
+                title=f"✅ Limit Filled: {trade.symbol}",
+                message=message,
+                level="info"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send limit filled notification: {e}")
+
+    async def _send_limit_override_notification(self, trade: PaperTrade, old_limit_price: float, market_price: float):
+        """Send notification when limit overrides to market"""
+        try:
+            emoji = "🟢" if trade.direction == 'long' else "🔴"
+
+            # Calculate price difference
+            if trade.direction == 'long':
+                price_diff_pct = ((market_price - old_limit_price) / old_limit_price) * 100
+            else:
+                price_diff_pct = ((old_limit_price - market_price) / old_limit_price) * 100
+
+            # Calculate time pending
+            time_pending = (datetime.now(timezone.utc) - trade.entry_time).total_seconds() / 60
+
+            message = f"""
+🚀 **LIMIT OVERRIDDEN TO MARKET** 🚀
+
+💰 **TRADE:**
+   Symbol: {trade.symbol}
+   Direction: **{trade.direction.upper()}**
+   Original Limit: ${old_limit_price:,.4f}
+   Market Entry: ${market_price:,.4f}
+   Slippage: {price_diff_pct:+.2f}%
+   Trade Type: {trade.trade_type}
+
+⚡ **REASON:**
+   Confluence improved or price drifting away
+   Better to enter now than miss the move
+
+⏱️ **TIMING:**
+   Time Pending: {time_pending:.0f} minutes
+
+🛡️ **RISK MANAGEMENT:**
+   Stop Loss: ${trade.stop_loss:,.4f}
+   Take Profit: ${trade.take_profit:,.4f}
+   Position Size: ${trade.position_size:,.2f}
+
+💼 **ACCOUNT:**
+   Current Capital: ${self.current_capital:,.2f}
+   Open Trades: {len(self.open_trades)}
+"""
+
+            await self.telegram_bot.send_alert(
+                title=f"🚀 Override: {trade.symbol}",
+                message=message,
+                level="info"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send override notification: {e}")
+
+    async def _send_limit_cancelled_notification(self, trade: PaperTrade, current_price: float):
+        """Send notification when limit order is cancelled"""
+        try:
+            # Calculate time pending
+            time_pending = (datetime.now(timezone.utc) - trade.entry_time).total_seconds() / 60
+
+            # Calculate price movement
+            price_diff_pct = ((current_price - trade.limit_price) / trade.limit_price) * 100
+
+            message = f"""
+❌ **LIMIT ORDER CANCELLED** ❌
+
+💰 **ORDER:**
+   Symbol: {trade.symbol}
+   Direction: {trade.direction.upper()}
+   Limit Price: ${trade.limit_price:,.4f}
+   Current Price: ${current_price:,.4f}
+   Price Move: {price_diff_pct:+.2f}%
+   Trade Type: {trade.trade_type}
+
+⚠️ **REASON:**
+   Setup invalidated - confluence dropped below threshold
+   Better to skip than force a low-quality trade
+
+⏱️ **TIMING:**
+   Time Pending: {time_pending:.0f} minutes
+
+💼 **ACCOUNT:**
+   Current Capital: ${self.current_capital:,.2f}
+   Open Trades: {len(self.open_trades)}
+   Pending Limits: {len(self.pending_limits) - 1}
+"""
+
+            await self.telegram_bot.send_alert(
+                title=f"❌ Cancelled: {trade.symbol}",
+                message=message,
+                level="warning"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send cancellation notification: {e}")
+
     async def _send_trade_closed_notification(self, trade: PaperTrade):
         """Send Telegram notification for closed trade"""
         try:
             emoji = "🟢" if trade.pnl > 0 else "🔴"
+            result_emoji = "✅" if trade.pnl > 0 else "❌"
+
+            # Calculate trade duration
+            duration_hours = (trade.exit_time - trade.entry_time).total_seconds() / 3600
 
             win_rate = (self.winning_trades / self.total_trades * 100) if self.total_trades > 0 else 0
             total_return = ((self.current_capital - self.initial_capital) / self.initial_capital) * 100
 
+            # Risk/Reward achieved
+            risk_pct = abs((trade.stop_loss - trade.entry_price) / trade.entry_price * 100)
+            actual_rr = abs(trade.pnl_pct / risk_pct) if risk_pct > 0 else 0
+
             message = f"""
-{emoji} **PAPER TRADE CLOSED** {emoji}
+{emoji} **TRADE CLOSED** {result_emoji}
 
 💰 **RESULT:**
    Symbol: {trade.symbol}
@@ -513,17 +666,29 @@ class PaperTradingEngine:
    Exit: ${trade.exit_price:,.4f}
 
    P&L: ${trade.pnl:+,.2f} ({trade.pnl_pct:+.2f}%)
+   R:R Achieved: {actual_rr:.2f}R
    Reason: {trade.reason}
 
-📊 **PERFORMANCE:**
+⏱️ **TIMING:**
+   Duration: {duration_hours:.1f} hours
+   Order Type: {trade.order_type}
+   Trade Type: {trade.trade_type}
+   Confluence: {trade.confluence_score}/10
+
+📊 **ACCOUNT PERFORMANCE:**
    Win Rate: {win_rate:.1f}% ({self.winning_trades}W / {self.losing_trades}L)
+   Total Trades: {self.total_trades}
    Total P&L: ${self.total_pnl:+,.2f}
    Total Return: {total_return:+.1f}%
    Current Capital: ${self.current_capital:,.2f}
+
+💼 **ACTIVE POSITIONS:**
+   Open Trades: {len(self.open_trades)}
+   Pending Limits: {len(self.pending_limits)}
 """
 
             await self.telegram_bot.send_alert(
-                title=f"Paper Trade Closed: {trade.symbol}",
+                title=f"{result_emoji} Closed: {trade.symbol} ({trade.pnl_pct:+.1f}%)",
                 message=message,
                 level="info"
             )
