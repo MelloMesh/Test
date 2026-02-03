@@ -517,7 +517,7 @@ async def main():
     scanner = HTFLiveScannerBybit(
         config,
         telegram_bot=telegram_bot,
-        top_n_pairs=50  # Start with top 50 for testing
+        top_n_pairs=200  # Scan top 200 pairs by volume
     )
 
     # Initialize
