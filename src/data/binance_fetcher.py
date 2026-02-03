@@ -7,7 +7,7 @@ Binance has a more permissive public API - no 403 errors
 import requests
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 import logging
 import time
@@ -277,7 +277,7 @@ class BinanceFetcher:
 
         logger.info(f"Fetching HTF data for {len(all_instruments)} instruments...")
 
-        end_date = datetime.utcnow()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=lookback_days)
 
         all_data = {}
@@ -344,7 +344,7 @@ def main():
     print("TEST 3: Fetch HTF data for BTCUSDT")
     print("="*80)
 
-    end = datetime.utcnow()
+    end = datetime.now(timezone.utc)
     start = end - timedelta(days=30)
 
     for tf in ['1w', '1d', '4h']:
