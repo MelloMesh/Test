@@ -92,7 +92,7 @@ GEMINI_CONFIG = {
     "rate_limit_calls_per_second": 1,
 }
 
-# BACKTESTING THRESHOLDS (Timeframe-Specific)
+# BACKTESTING THRESHOLDS (Timeframe-Specific) - STRICT for validation
 THRESHOLDS = {
     "2m": {
         "min_win_rate": 0.55,
@@ -117,6 +117,37 @@ THRESHOLDS = {
         "min_profit_factor": 1.3,
         "min_sharpe": 1.0,
         "min_trades": 40,
+    }
+}
+
+# LIVE TRADING THRESHOLDS (More lenient, R:R based)
+# Formula: Required WR = 1 / (1 + R:R) + 5% buffer
+# 2:1 R:R needs 33% + 5% = 38% WR
+# 3:1 R:R needs 25% + 5% = 30% WR
+LIVE_THRESHOLDS = {
+    "2m": {
+        "min_win_rate": 0.38,  # For 2:1 R:R (33% break-even + 5% buffer)
+        "min_profit_factor": 1.2,
+        "min_trades": 50,
+        "required_rr": 2.0,
+    },
+    "5m": {
+        "min_win_rate": 0.38,  # For 2:1 R:R
+        "min_profit_factor": 1.2,
+        "min_trades": 40,
+        "required_rr": 2.0,
+    },
+    "15m": {
+        "min_win_rate": 0.38,  # For 2:1 R:R
+        "min_profit_factor": 1.2,
+        "min_trades": 30,
+        "required_rr": 2.0,
+    },
+    "30m": {
+        "min_win_rate": 0.30,  # For 3:1 R:R (25% break-even + 5% buffer)
+        "min_profit_factor": 1.2,
+        "min_trades": 20,
+        "required_rr": 3.0,
     }
 }
 
