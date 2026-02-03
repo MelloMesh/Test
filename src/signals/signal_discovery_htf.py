@@ -512,6 +512,24 @@ class HTFAwareSignalDiscovery:
         print("=" * 80 + "\n")
 
 
+def get_htf_aware_signals(config=None) -> List[HTFAwareSignalHypothesis]:
+    """
+    Helper function to get all HTF-aware signal hypotheses
+
+    Returns:
+        List of HTFAwareSignalHypothesis objects
+    """
+    if config is None:
+        import sys
+        import os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+        import config as cfg
+        config = cfg
+
+    engine = HTFAwareSignalDiscovery(config)
+    return engine.generate_all_htf_aware_signals()
+
+
 def main():
     """Example usage"""
     import sys
