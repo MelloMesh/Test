@@ -18,6 +18,7 @@ sys.path.append(str(Path(__file__).parent))
 
 import config
 from src.data.bybit_fetcher import BybitFetcher
+from src.data.binance_fetcher import BinanceFetcher
 from src.analysis.higher_timeframe_analyzer import HigherTimeframeAnalyzer, HTFContext
 from src.signals.signal_discovery_htf import HTFAwareSignalDiscovery
 from src.trading.telegram_bot import TradingTelegramBot, load_telegram_credentials
@@ -49,8 +50,9 @@ class HTFLiveScannerBybit:
         self.telegram_bot = telegram_bot
         self.top_n_pairs = top_n_pairs
 
-        # Initialize components
-        self.bybit = BybitFetcher(config)
+        # Initialize components - use Binance (more reliable API)
+        self.exchange = BinanceFetcher(config)
+        self.exchange_name = "Binance"
         self.htf_analyzer = HigherTimeframeAnalyzer(config)
         self.signal_discovery = HTFAwareSignalDiscovery(config)
 
@@ -77,11 +79,11 @@ class HTFLiveScannerBybit:
 
     async def initialize(self):
         """Initialize scanner - fetch instruments and HTF data"""
-        logger.info("Initializing HTF Live Scanner for Bybit...")
+        logger.info(f"Initializing HTF Live Scanner for {self.exchange_name}...")
 
         # Get top trading pairs by volume
         logger.info(f"Fetching top {self.top_n_pairs} pairs by 24h volume...")
-        self.active_pairs = self.bybit.get_top_volume_pairs(top_n=self.top_n_pairs)
+        self.active_pairs = self.exchange.get_top_volume_pairs(top_n=self.top_n_pairs)
 
         if not self.active_pairs:
             logger.error("Failed to fetch trading pairs")
@@ -111,13 +113,13 @@ class HTFLiveScannerBybit:
                 logger.info(f"[{i}/{len(self.active_pairs)}] Fetching HTF for {symbol}...")
 
                 # Fetch each HTF timeframe
-                weekly_data = self.bybit.fetch_historical_data(
+                weekly_data = self.exchange.fetch_historical_data(
                     symbol, '1w', start_date, end_date
                 )
-                daily_data = self.bybit.fetch_historical_data(
+                daily_data = self.exchange.fetch_historical_data(
                     symbol, '1d', start_date, end_date
                 )
-                h4_data = self.bybit.fetch_historical_data(
+                h4_data = self.exchange.fetch_historical_data(
                     symbol, '4h', start_date, end_date
                 )
 
@@ -254,7 +256,7 @@ class HTFLiveScannerBybit:
             end_date = datetime.utcnow()
             start_date = end_date - timedelta(days=7)
 
-            ltf_data = self.bybit.fetch_historical_data(
+            ltf_data = self.exchange.fetch_historical_data(
                 symbol, '30m', start_date, end_date
             )
 
@@ -456,7 +458,7 @@ HTF-Aligned ({htf_context.alignment_score:.0f}% agreement)
             try:
                 await self.telegram_bot.send_alert(
                     title="🚀 HTF Live Scanner Started",
-                    message=f"Monitoring {len(self.active_pairs)} Bybit USDT perpetuals with HTF filtering.\n\nScan interval: 5 minutes\nHTF timeframes: W/D/4H\nLTF execution: 30m/15m/5m",
+                    message=f"Monitoring {len(self.active_pairs)} {self.exchange_name} USDT perpetuals with HTF filtering.\n\nScan interval: 5 minutes\nHTF timeframes: W/D/4H\nLTF execution: 30m/15m/5m",
                     level="info"
                 )
             except:
@@ -532,7 +534,7 @@ async def main():
 
 if __name__ == "__main__":
     print("\n" + "="*80)
-    print("HTF LIVE SCANNER - BYBIT 200+ USDT PERPETUALS")
+    print("HTF LIVE SCANNER - BINANCE 200+ USDT PERPETUALS")
     print("="*80)
     print("\nPress Ctrl+C to stop\n")
     print("="*80 + "\n")
