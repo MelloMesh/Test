@@ -27,13 +27,7 @@ class BybitFetcher:
         self.base_url = "https://api.bybit.com"
         self.session = requests.Session()
 
-        # Add headers to avoid 403 errors
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-        })
-
+        # Keep it simple - no custom headers (they can trigger blocking)
         # Rate limiting
         self.requests_per_second = 10  # Bybit allows 50/s, we use 10 for safety
         self.last_request_time = 0

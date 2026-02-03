@@ -27,6 +27,7 @@ class BinanceFetcher:
         self.base_url = "https://fapi.binance.com"  # Futures API
         self.session = requests.Session()
 
+        # Keep it simple - no custom headers (they can trigger blocking)
         # Rate limiting
         self.requests_per_second = 10
         self.last_request_time = 0
