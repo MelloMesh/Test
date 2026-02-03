@@ -420,8 +420,8 @@ class HTFLiveScannerBybit:
    Entry: ${signal['entry_price']:,.4f}
 
 📈 **HTF LEVELS:**
-   Weekly S/R: ${htf_context.weekly_support:,.2f if htf_context.weekly_support else 0:,.2f} / ${htf_context.weekly_resistance:,.2f if htf_context.weekly_resistance else 0:,.2f}
-   Daily S/R: ${htf_context.daily_support:,.2f if htf_context.daily_support else 0:,.2f} / ${htf_context.daily_resistance:,.2f if htf_context.daily_resistance else 0:,.2f}
+   Weekly S/R: ${(htf_context.weekly_support if htf_context.weekly_support else 0):,.2f} / ${(htf_context.weekly_resistance if htf_context.weekly_resistance else 0):,.2f}
+   Daily S/R: ${(htf_context.daily_support if htf_context.daily_support else 0):,.2f} / ${(htf_context.daily_resistance if htf_context.daily_resistance else 0):,.2f}
 
 💡 **REASON:**
 {signal['reason']}
