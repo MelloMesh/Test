@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from analysis.higher_timeframe_analyzer import HigherTimeframeAnalyzer, HTFContext
 from data.binance_fetcher import BinanceFetcher
 from signals.signal_discovery_htf import get_htf_aware_signals
-from utils.telegram_bot import TelegramBot
+from trading.telegram_bot import TelegramBot
 
 # Setup logging
 logging.basicConfig(
