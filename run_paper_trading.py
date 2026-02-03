@@ -23,6 +23,7 @@ from analysis.higher_timeframe_analyzer import HigherTimeframeAnalyzer, HTFConte
 from data.binance_fetcher import BinanceFetcher
 from signals.signal_discovery_htf import get_htf_aware_signals
 from trading.telegram_bot import TradingTelegramBot, load_telegram_credentials
+from trading.notification_manager import NotificationManager
 from signals.limit_order_manager import get_limit_manager
 from signals.confluence_scorer import get_confluence_scorer
 
@@ -90,6 +91,12 @@ class PaperTradingEngine:
             logger.info("✅ Telegram bot initialized")
         else:
             logger.warning("⚠️ Telegram bot not configured")
+
+        # Initialize notification manager (requires telegram_bot)
+        self.notification_manager = None
+        if self.telegram_bot:
+            self.notification_manager = NotificationManager(self.telegram_bot, self)
+            logger.info("✅ Notification manager initialized")
 
         # Results file
         self.results_file = "paper_trading_results.json"
@@ -234,6 +241,10 @@ class PaperTradingEngine:
             logger.info(f"  HTF Bias: {htf_context.primary_bias.upper()} ({htf_context.alignment_score:.0f}%)")
             logger.info(f"{'='*80}\n")
 
+        # Track in notification manager
+        if self.notification_manager:
+            self.notification_manager.track_trade_opened(trade, order_type)
+
         # Send Telegram notification
         if self.telegram_bot:
             asyncio.create_task(self._send_trade_opened_notification(trade, htf_context))
@@ -282,6 +293,10 @@ class PaperTradingEngine:
                     symbols_to_fill.append(symbol)
                     self.total_trades += 1
 
+                    # Track in notification manager
+                    if self.notification_manager:
+                        self.notification_manager.track_limit_filled(symbol)
+
                     # Send Telegram notification
                     if self.telegram_bot:
                         asyncio.create_task(self._send_limit_filled_notification(trade))
@@ -324,6 +339,10 @@ class PaperTradingEngine:
                     symbols_to_fill.append(symbol)
                     self.total_trades += 1
 
+                    # Track in notification manager
+                    if self.notification_manager:
+                        self.notification_manager.track_limit_override(symbol)
+
                     # Send Telegram notification
                     if self.telegram_bot:
                         asyncio.create_task(self._send_limit_override_notification(trade, old_limit_price, current_price))
@@ -334,6 +353,10 @@ class PaperTradingEngine:
                 elif override_decision == 'CANCEL_LIMIT':
                     logger.info(f"❌ CANCELING LIMIT: {symbol} - Setup invalidated")
                     symbols_to_cancel.append(symbol)
+
+                    # Track in notification manager
+                    if self.notification_manager:
+                        self.notification_manager.track_limit_cancelled(symbol)
 
                     # Send Telegram notification
                     if self.telegram_bot:
@@ -436,6 +459,10 @@ class PaperTradingEngine:
 
         # Move to closed trades
         self.closed_trades.append(trade)
+
+        # Track in notification manager
+        if self.notification_manager:
+            self.notification_manager.track_trade_closed(trade)
 
         # Log
         emoji = "🟢" if pnl > 0 else "🔴"
@@ -745,6 +772,11 @@ async def main():
 
     # Initialize engine
     engine = PaperTradingEngine(initial_capital=10000)
+
+    # Start notification manager background tasks
+    if engine.notification_manager:
+        await engine.notification_manager.start()
+        logger.info("✅ Notification manager tasks started")
 
     # Display current performance
     engine.display_performance()
