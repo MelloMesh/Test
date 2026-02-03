@@ -18,6 +18,7 @@ import json
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+import config
 from analysis.higher_timeframe_analyzer import HigherTimeframeAnalyzer, HTFContext
 from data.binance_fetcher import BinanceFetcher
 from signals.signal_discovery_htf import get_htf_aware_signals
@@ -62,7 +63,7 @@ class PaperTradingEngine:
         self.closed_trades: List[PaperTrade] = []
 
         self.exchange = BinanceFetcher()
-        self.htf_analyzer = HigherTimeframeAnalyzer()
+        self.htf_analyzer = HigherTimeframeAnalyzer(config)
 
         # Performance tracking
         self.total_trades = 0
