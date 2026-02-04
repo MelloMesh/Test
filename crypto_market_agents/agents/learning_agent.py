@@ -76,6 +76,7 @@ class LearningAgent(BaseAgent):
 
         # Track active positions to prevent duplicates
         self.active_positions: Dict[str, str] = {}  # symbol -> trade_id
+        self.duplicates_prevented = 0  # Counter for duplicate prevention stats
 
         # Strategy metrics
         self.current_metrics: Optional[StrategyMetrics] = None
@@ -142,6 +143,13 @@ class LearningAgent(BaseAgent):
             # Save data periodically
             self._save_data()
 
+            # Log statistics
+            self.logger.info(
+                f"Learning Agent: {len(self.open_trades)} open, "
+                f"{len(self.closed_trades)} closed, "
+                f"{self.duplicates_prevented} duplicates prevented"
+            )
+
         except Exception as e:
             self.logger.error(f"Error in learning agent: {e}")
 
@@ -169,9 +177,10 @@ class LearningAgent(BaseAgent):
 
         # Check for duplicate position
         if signal.asset in self.active_positions:
-            self.logger.debug(
-                f"Position already open for {signal.asset} "
-                f"(trade {self.active_positions[signal.asset][:8]}), skipping duplicate"
+            self.duplicates_prevented += 1
+            self.logger.info(
+                f"⏭️  Skipping {signal.asset} - position already open "
+                f"(trade {self.active_positions[signal.asset][:8]})"
             )
             return None
 
