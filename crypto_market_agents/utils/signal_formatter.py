@@ -6,6 +6,27 @@ from typing import Optional
 from ..schemas import TradingSignal
 
 
+def format_price(price: float) -> str:
+    """
+    Format price with appropriate decimal places based on magnitude.
+
+    Args:
+        price: Price value
+
+    Returns:
+        Formatted price string
+    """
+    if price >= 1000:
+        return f"{price:,.2f}"
+    elif price >= 1:
+        return f"{price:,.4f}"
+    elif price >= 0.01:
+        return f"{price:,.6f}"
+    else:
+        # For very small prices (like 1000SATSUSDT), use 8 decimals
+        return f"{price:,.8f}"
+
+
 def create_bar(value: float, max_value: float, length: int = 20, filled_char: str = "█", empty_char: str = "░") -> str:
     """
     Create a visual progress bar.
@@ -236,9 +257,9 @@ def format_signal_telegram(signal: TradingSignal) -> str:
 {direction_emoji} *{signal.asset}* {signal.direction} Signal
 
 📊 *Trade Details:*
-• Entry:  `${signal.entry:,.4f}`
-• Stop:   `${signal.stop:,.4f}` ({abs(stop_pct):.2f}%)
-• Target: `${signal.target:,.4f}` ({abs(target_pct):.2f}%)
+• Entry:  `${format_price(signal.entry)}`
+• Stop:   `${format_price(signal.stop)}` ({abs(stop_pct):.2f}%)
+• Target: `${format_price(signal.target)}` ({abs(target_pct):.2f}%)
 • R:R:    `{rr_ratio:.2f}x`
 • Type:   {order_badge}
 

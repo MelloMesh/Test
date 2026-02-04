@@ -65,6 +65,10 @@ class AgentOrchestrator:
                 enabled=True
             )
 
+        # Signal deduplication tracking (asset+direction+entry -> timestamp)
+        self.sent_signals: dict[str, float] = {}
+        self.signal_dedupe_window = 1800  # 30 minutes in seconds
+
         # Report generation
         self.report_task: Optional[asyncio.Task] = None
         self.output_dir = Path(config.output_dir)
@@ -250,6 +254,50 @@ class AgentOrchestrator:
 
         self.logger.info("Orchestrator stopped")
 
+    def _get_signal_id(self, signal: TradingSignal) -> str:
+        """
+        Generate a unique ID for a signal for deduplication.
+
+        Args:
+            signal: Trading signal
+
+        Returns:
+            Unique signal identifier
+        """
+        # Use asset, direction, and rounded entry price as unique ID
+        return f"{signal.asset}_{signal.direction}_{signal.entry:.8f}"
+
+    def _should_send_signal(self, signal: TradingSignal) -> bool:
+        """
+        Check if a signal should be sent (not sent recently).
+
+        Args:
+            signal: Trading signal to check
+
+        Returns:
+            True if signal should be sent
+        """
+        signal_id = self._get_signal_id(signal)
+        current_time = datetime.now(timezone.utc).timestamp()
+
+        # Clean up old entries (older than dedupe window)
+        expired_ids = [
+            sid for sid, timestamp in self.sent_signals.items()
+            if current_time - timestamp > self.signal_dedupe_window
+        ]
+        for sid in expired_ids:
+            del self.sent_signals[sid]
+
+        # Check if signal was sent recently
+        if signal_id in self.sent_signals:
+            time_since_sent = current_time - self.sent_signals[signal_id]
+            if time_since_sent < self.signal_dedupe_window:
+                return False
+
+        # Mark as sent
+        self.sent_signals[signal_id] = current_time
+        return True
+
     async def _report_loop(self):
         """Periodic report generation loop."""
         while self.running:
@@ -311,12 +359,18 @@ class AgentOrchestrator:
                         f"(confidence: {signal.confidence:.2f}) - {signal.rationale}"
                     )
 
-                # Send top signals to Telegram
+                # Send top signals to Telegram (with deduplication)
                 if self.telegram_bot and self.config.telegram.send_signals:
-                    max_signals = self.config.telegram.max_signals_per_batch
-                    sent = await self.telegram_bot.send_signals_batch(trading_signals, max_signals)
-                    if sent > 0:
-                        self.logger.info(f"Sent {sent} signals to Telegram")
+                    # Filter out signals that were already sent recently
+                    new_signals = [s for s in trading_signals if self._should_send_signal(s)]
+
+                    if new_signals:
+                        max_signals = self.config.telegram.max_signals_per_batch
+                        sent = await self.telegram_bot.send_signals_batch(new_signals, max_signals)
+                        if sent > 0:
+                            self.logger.info(f"Sent {sent} new signals to Telegram (filtered {len(trading_signals) - len(new_signals)} duplicates)")
+                    else:
+                        self.logger.debug(f"No new signals to send (all {len(trading_signals)} were already sent recently)")
 
         except Exception as e:
             self.logger.error(f"Failed to generate report: {e}", exc_info=True)
