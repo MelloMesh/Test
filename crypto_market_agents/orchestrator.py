@@ -109,12 +109,8 @@ class AgentOrchestrator:
                 self.agents.append(self.volume_spike_agent)
 
             # Get symbols for S/R and Learning agents
-            symbols = []
-            if hasattr(self.config, 'symbols') and self.config.symbols:
-                symbols = self.config.symbols
-            elif self.config.price_action.enabled:
-                # Use symbols from price action config
-                symbols = self.config.price_action.symbols
+            # Will be populated from exchange when agents execute
+            symbols = self.config.symbols if self.config.symbols else []
 
             # S/R Detection Agent
             if hasattr(self.config, 'sr_detection') and self.config.sr_detection.enabled:

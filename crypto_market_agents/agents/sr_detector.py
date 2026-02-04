@@ -88,6 +88,11 @@ class SRDetectionAgent(BaseAgent):
     async def execute(self):
         """Main execution loop for S/R detection."""
         try:
+            # Get symbols from exchange if not provided
+            if not self.symbols:
+                self.symbols = await self.exchange.get_trading_symbols()
+                self.logger.info(f"Loaded {len(self.symbols)} symbols from exchange")
+
             for symbol in self.symbols:
                 # Get current price
                 ticker = await self.exchange.get_ticker(symbol)
