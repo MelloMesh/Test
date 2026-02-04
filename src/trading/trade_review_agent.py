@@ -2,6 +2,7 @@
 Intelligent Trade Review Agent
 Analyzes trading performance and provides expert insights
 Self-trains on trading knowledge from internet resources
+Actively researches concepts using web search
 """
 
 import asyncio
@@ -12,6 +13,11 @@ from dataclasses import dataclass, asdict
 import json
 from pathlib import Path
 from collections import defaultdict
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 logger = logging.getLogger(__name__)
 
@@ -74,27 +80,87 @@ class TradeReviewAgent:
         # Load existing data
         self._load_databases()
 
-        # Knowledge areas to research
+        # Knowledge areas to research (expanded list)
         self.knowledge_topics = [
+            # Core Technical Analysis
             "support and resistance trading strategies",
             "confluence trading technical analysis",
             "mean reversion trading crypto",
             "trend continuation strategies",
+            "price action trading patterns",
+            "market structure analysis",
+            "supply and demand zones trading",
+
+            # Risk & Money Management
             "risk management crypto trading",
             "position sizing strategies",
             "stop loss placement techniques",
+            "trailing stop strategies",
+            "risk reward ratio optimization",
+            "expectancy trading formula",
+            "kelly criterion position sizing",
+
+            # Technical Indicators
             "RSI divergence trading",
             "MACD trading strategies",
             "volume analysis trading",
+            "moving average strategies",
+            "bollinger bands trading",
+            "fibonacci retracement trading",
+            "ATR indicator usage",
+
+            # Timeframe Analysis
             "higher timeframe analysis",
+            "multi timeframe trading strategies",
+            "top down analysis trading",
+
+            # Order Execution
             "limit order vs market order strategies",
             "slippage management crypto",
+            "order book analysis",
+            "market maker strategies",
+
+            # Performance Optimization
             "win rate optimization trading",
-            "expectancy trading formula"
+            "trading psychology",
+            "overtrading prevention",
+            "revenge trading psychology",
+
+            # Advanced Concepts
+            "smart money concepts trading",
+            "institutional order flow",
+            "liquidity sweep trading",
+            "order blocks trading",
+            "fair value gaps",
+            "breaker blocks trading",
+            "market maker manipulation patterns",
+
+            # Crypto Specific
+            "crypto market cycles",
+            "bitcoin dominance trading",
+            "altcoin season indicators",
+            "funding rates trading crypto",
+            "on chain analysis trading",
+
+            # Strategy Development
+            "backtesting trading strategies",
+            "forward testing best practices",
+            "strategy optimization methods",
+            "overfitting trading strategies"
         ]
 
         # Track what we've learned
         self.topics_researched = set()
+
+        # Research queue for topics to learn
+        self.research_queue = []
+
+        # Context-aware learning triggers
+        self.learning_triggers = {
+            'consecutive_losses': 3,
+            'low_win_rate': 45,
+            'poor_rr': 1.0
+        }
 
         logger.info("✅ Trade Review Agent initialized")
 
@@ -335,6 +401,294 @@ class TradeReviewAgent:
                         "Win rate 40%, R:R 3:1 = Positive expectancy",
                         "Focus on improving expectancy, not just win rate",
                         "Track expectancy by strategy type to identify best setups"
+                    ]
+                },
+                "price action trading patterns": {
+                    "summary": "Price action is the study of price movement without indicators. Patterns reveal market psychology and future direction.",
+                    "key_points": [
+                        "Pin bars: Long wick rejection candles indicate reversal",
+                        "Engulfing patterns: Large candle swallows previous = strong momentum",
+                        "Inside bars: Consolidation before breakout",
+                        "Outside bars: High volatility, potential reversal",
+                        "Doji candles: Indecision, often at reversals",
+                        "Higher highs/higher lows = uptrend",
+                        "Lower highs/lower lows = downtrend",
+                        "Break of structure: Key trend change signal"
+                    ]
+                },
+                "market structure analysis": {
+                    "summary": "Market structure identifies trend phases through swing points. Essential for determining trade direction.",
+                    "key_points": [
+                        "Bullish structure: Higher highs + higher lows",
+                        "Bearish structure: Lower highs + lower lows",
+                        "Break of structure (BOS): Confirms trend change",
+                        "Change of character (CHoCH): Early trend warning",
+                        "Swing points: Major pivots where price reversed",
+                        "Trade with structure, not against it",
+                        "Wait for structure confirmation before entries",
+                        "Failed breaks often lead to strong reversals"
+                    ]
+                },
+                "smart money concepts trading": {
+                    "summary": "SMC tracks institutional order flow. Banks and institutions create patterns retail traders can follow.",
+                    "key_points": [
+                        "Order blocks: Where institutions placed large orders",
+                        "Fair value gaps: Imbalances institutions fill",
+                        "Liquidity sweeps: Stop hunts before real moves",
+                        "Premium/discount zones: Where price likely to reverse",
+                        "Institutions accumulate at discount, distribute at premium",
+                        "Follow smart money, don't fight it",
+                        "Market maker models: Accumulation → Manipulation → Distribution",
+                        "Retail often wrong at extremes, fade retail sentiment"
+                    ]
+                },
+                "order blocks trading": {
+                    "summary": "Order blocks are zones where institutions placed large orders. High probability reversal areas.",
+                    "key_points": [
+                        "Bullish order block: Last down candle before rally",
+                        "Bearish order block: Last up candle before sell-off",
+                        "Institutions have unfilled orders in these zones",
+                        "Price often returns to fill institutional orders",
+                        "Best entries at order block retests",
+                        "Combine with liquidity sweeps for highest probability",
+                        "Untested order blocks strongest",
+                        "Mitigated blocks lose power"
+                    ]
+                },
+                "liquidity sweep trading": {
+                    "summary": "Liquidity sweeps occur when price quickly hits stops then reverses. Classic manipulation pattern.",
+                    "key_points": [
+                        "Stop loss clusters create liquidity pools",
+                        "Institutions sweep stops before real move",
+                        "Wick above/below key level = liquidity grab",
+                        "Trade the reversal after sweep, not the sweep itself",
+                        "Equal highs/lows = liquidity magnets",
+                        "Expect sweeps before major trends",
+                        "Asian session highs/lows often swept in London/NY",
+                        "Don't place stops at obvious levels"
+                    ]
+                },
+                "fair value gaps": {
+                    "summary": "Fair value gaps (FVGs) are price imbalances. Market tends to fill these gaps before continuing.",
+                    "key_points": [
+                        "FVG: 3 candle pattern with gap between candle 1 and 3",
+                        "Created by strong institutional momentum",
+                        "70-80% of FVGs get filled eventually",
+                        "Trade retest of FVG as support/resistance",
+                        "Larger gaps more significant",
+                        "Multiple timeframe FVGs strongest",
+                        "Filled gaps validate move continuation",
+                        "Unfilled gaps create magnet for price"
+                    ]
+                },
+                "trading psychology": {
+                    "summary": "Psychology determines success. Discipline, patience, and emotional control separate winners from losers.",
+                    "key_points": [
+                        "Fear and greed drive poor decisions",
+                        "Follow plan mechanically, remove emotions",
+                        "Accept losses as cost of business",
+                        "Don't revenge trade after losses",
+                        "Overconfidence after wins leads to errors",
+                        "Journal every trade with emotions noted",
+                        "Take breaks after 2 losing trades",
+                        "Mindset: Process over results",
+                        "Patience to wait for perfect setups = key edge"
+                    ]
+                },
+                "overtrading prevention": {
+                    "summary": "Overtrading destroys accounts through excessive risk and poor decisions. Quality over quantity essential.",
+                    "key_points": [
+                        "Max 3-5 trades per day (unless scalping)",
+                        "Only trade A+ setups (confluence 7+)",
+                        "Boredom leads to overtrading - recognize it",
+                        "Set daily trade limit, stick to it",
+                        "If hit daily loss limit (-2%), stop immediately",
+                        "More trades ≠ more profit, often opposite",
+                        "Best traders take few high-quality trades",
+                        "Wait for optimal conditions, don't force trades"
+                    ]
+                },
+                "multi timeframe trading strategies": {
+                    "summary": "Multiple timeframe analysis provides context and precision. HTF for direction, LTF for entries.",
+                    "key_points": [
+                        "Use 3 timeframes: HTF (direction), MTF (structure), LTF (entry)",
+                        "Example: Daily (HTF) → 4H (MTF) → 1H/30m (LTF)",
+                        "HTF provides bias and S/R levels",
+                        "MTF confirms trend and structure",
+                        "LTF pinpoints precise entry timing",
+                        "Never trade against HTF trend",
+                        "Wait for LTF pullback in HTF direction",
+                        "All timeframes aligned = highest probability"
+                    ]
+                },
+                "fibonacci retracement trading": {
+                    "summary": "Fibonacci levels (38.2%, 50%, 61.8%) mark probable retracement zones. Used for entry in trends.",
+                    "key_points": [
+                        "Golden ratio: 61.8% most important level",
+                        "50% retracement = half back, strong support/resistance",
+                        "38.2% shallow retracement in strong trends",
+                        "Draw fib from swing low to swing high (uptrend)",
+                        "Draw fib from swing high to swing low (downtrend)",
+                        "Combine with S/R, order blocks for confluence",
+                        "Enter at fib level, stop below next fib",
+                        "Extensions (1.618, 2.618) for profit targets"
+                    ]
+                },
+                "trailing stop strategies": {
+                    "summary": "Trailing stops lock in profits as trade moves favorably. Balances letting winners run with protecting gains.",
+                    "key_points": [
+                        "Don't trail too tight - allow breathing room",
+                        "Trail at structure levels (swing lows/highs)",
+                        "ATR-based trails: Trail by 1.5-2x ATR",
+                        "Wait for significant profit before trailing",
+                        "Move to breakeven after 1R profit",
+                        "Trail tighter in choppy markets",
+                        "Trail looser in strong trends",
+                        "Never trail stops against you (widen risk)"
+                    ]
+                },
+                "kelly criterion position sizing": {
+                    "summary": "Kelly Criterion calculates optimal position size based on edge and win rate. Maximizes long-term growth.",
+                    "key_points": [
+                        "Formula: f = (bp - q) / b",
+                        "b = odds received (R:R ratio)",
+                        "p = probability of winning",
+                        "q = probability of losing (1 - p)",
+                        "Example: 60% win rate, 2:1 RR = f = (2×0.6 - 0.4) / 2 = 0.4 (40% of capital)",
+                        "Full Kelly very aggressive, use fractional Kelly",
+                        "Half Kelly (0.5×) recommended for safety",
+                        "Quarter Kelly (0.25×) for conservative approach",
+                        "Never use more than Kelly suggests = overleverage"
+                    ]
+                },
+                "supply and demand zones trading": {
+                    "summary": "Supply/demand zones are areas of strong buying/selling. Similar to S/R but focus on institutional zones.",
+                    "key_points": [
+                        "Demand zone: Where strong buying occurred (accumulation)",
+                        "Supply zone: Where strong selling occurred (distribution)",
+                        "Look for zones with strong moves away",
+                        "Zones untested = fresh, most powerful",
+                        "Multiple touches weaken zones",
+                        "Trade first touch of fresh zones",
+                        "Combine with order blocks for best results",
+                        "Institutions defend their zones"
+                    ]
+                },
+                "moving average strategies": {
+                    "summary": "Moving averages smooth price action and identify trend. Dynamic support/resistance levels.",
+                    "key_points": [
+                        "EMA more responsive than SMA (exponential vs simple)",
+                        "20 EMA: Short-term trend, pullback entry",
+                        "50 EMA: Medium-term trend",
+                        "200 EMA: Long-term trend, major S/R",
+                        "MA crossovers: Fast cross above slow = bullish",
+                        "Price above MA = uptrend, below = downtrend",
+                        "Use MA as trailing stop in trends",
+                        "Don't trade against 200 EMA trend"
+                    ]
+                },
+                "bollinger bands trading": {
+                    "summary": "Bollinger Bands show volatility. Price tends to revert to mean (middle band) from extremes.",
+                    "key_points": [
+                        "Middle band = 20 SMA",
+                        "Upper/lower bands = 2 standard deviations",
+                        "Touch upper band = overbought, potential reversal",
+                        "Touch lower band = oversold, potential reversal",
+                        "Squeeze: Narrow bands = low volatility, expansion coming",
+                        "Walking the bands: Strong trends ride upper/lower band",
+                        "Combine with RSI for confirmation",
+                        "Best in ranging markets, less useful in trends"
+                    ]
+                },
+                "ATR indicator usage": {
+                    "summary": "ATR (Average True Range) measures volatility. Essential for stop loss and position sizing.",
+                    "key_points": [
+                        "ATR shows average price movement over period",
+                        "Use for stop loss: 1.5-2x ATR from entry",
+                        "High ATR = volatile, use wider stops",
+                        "Low ATR = calm, can use tighter stops",
+                        "Position sizing: Risk same $ amount regardless of ATR",
+                        "ATR expansion = volatility increasing",
+                        "ATR contraction = consolidation, breakout coming",
+                        "Don't use fixed pip stops, use ATR-based"
+                    ]
+                },
+                "crypto market cycles": {
+                    "summary": "Crypto moves in 4-year cycles around Bitcoin halving. Understanding cycles essential for timing.",
+                    "key_points": [
+                        "4 phases: Accumulation → Markup → Distribution → Markdown",
+                        "Bitcoin halving every 4 years drives cycles",
+                        "Post-halving: 12-18 month bull run typical",
+                        "Peak: Usually 12-18 months after halving",
+                        "Bear market: -80% to -90% corrections common",
+                        "Altseason: Occurs late in bull market",
+                        "Strategy: Accumulate in bear, sell in euphoria",
+                        "Don't fight the cycle"
+                    ]
+                },
+                "funding rates trading crypto": {
+                    "summary": "Funding rates show sentiment in perps. Extreme funding predicts reversals.",
+                    "key_points": [
+                        "Positive funding: Longs pay shorts (bullish sentiment)",
+                        "Negative funding: Shorts pay longs (bearish sentiment)",
+                        "Extreme positive (>0.1%): Overleveraged longs, reversal likely",
+                        "Extreme negative (<-0.1%): Overleveraged shorts, bounce likely",
+                        "Sustained high funding = trend exhaustion",
+                        "Reset to neutral funding = healthy trend",
+                        "Contrarian indicator: Trade against extremes",
+                        "Check funding before major position entries"
+                    ]
+                },
+                "backtesting trading strategies": {
+                    "summary": "Backtesting validates strategy on historical data. Essential before live trading.",
+                    "key_points": [
+                        "Minimum 100 trades for statistical significance",
+                        "Test on multiple market conditions (bull/bear/sideways)",
+                        "Use out-of-sample data for validation",
+                        "Account for slippage and commissions",
+                        "Walk-forward analysis: Test on rolling periods",
+                        "Don't curve-fit parameters to data",
+                        "If backtest shows <50% win rate or <1.5 R:R, don't trade it",
+                        "Paper trade after backtest before live"
+                    ]
+                },
+                "forward testing best practices": {
+                    "summary": "Forward testing (paper trading) proves strategy in live conditions without risk.",
+                    "key_points": [
+                        "Minimum 30-90 days forward testing",
+                        "Must achieve positive expectancy",
+                        "Track execution quality (slippage, fill rates)",
+                        "Emotional discipline practice",
+                        "Identify real-world issues (data lags, connection)",
+                        "Adjust strategy based on forward test results",
+                        "Don't skip this step - backtest ≠ reality",
+                        "Only go live after consistent profitability"
+                    ]
+                },
+                "strategy optimization methods": {
+                    "summary": "Optimization improves strategy performance. Must avoid overfitting.",
+                    "key_points": [
+                        "Optimize on in-sample data, validate on out-of-sample",
+                        "Change one parameter at a time",
+                        "Look for robust ranges, not sharp peaks",
+                        "If optimal setting is extreme, likely overfit",
+                        "Use simple strategies (fewer parameters = less overfitting)",
+                        "Optimize for consistency, not maximum profit",
+                        "Walk-forward optimization: Retune periodically",
+                        "Market regimes change, strategies must adapt"
+                    ]
+                },
+                "overfitting trading strategies": {
+                    "summary": "Overfitting creates strategies that work on past data but fail live. Avoid at all costs.",
+                    "key_points": [
+                        "Overfitting: Strategy tuned to historical noise, not true edge",
+                        "Signs: Too many parameters, too-perfect backtest, complex rules",
+                        "Prevention: Keep strategies simple, validate out-of-sample",
+                        "Use walk-forward analysis, not just backtest",
+                        "If seems too good to be true, it is (overfit)",
+                        "Robust strategies work across timeframes and markets",
+                        "Accept 60-70% win rate, not 90%+ (unrealistic)",
+                        "Paper trade to catch overfitting before live"
                     ]
                 }
             }
