@@ -73,7 +73,7 @@ class SimpleBacktest:
                 logger.info(f"📅 Progress: {progress_pct:.0f}% | Date: {current_date.date()} | Signals: {self.total_signals} | Trades: {len(self.trades)}")
 
             # Check each pair
-            for symbol in self.pairs[:10]:  # Limit to 10 pairs for speed
+            for symbol in self.pairs:  # Use all pairs from established list
                 try:
                     await self._check_pair(symbol, current_date)
                 except Exception as e:
@@ -236,7 +236,7 @@ class SimpleBacktest:
         logger.info(f"")
         logger.info(f"💡 ANALYSIS:")
         logger.info(f"   Avg Signals/Day: {self.total_signals / max(1, (self.end_date - self.start_date).days):.1f}")
-        logger.info(f"   Pairs Scanned: {len(self.pairs[:10])}")
+        logger.info(f"   Pairs Scanned: {len(self.pairs)}")
         logger.info(f"")
         logger.info(f"{'='*80}\n")
 
@@ -246,7 +246,7 @@ class SimpleBacktest:
             json.dump({
                 'start_date': self.start_date.isoformat(),
                 'end_date': self.end_date.isoformat(),
-                'pairs': self.pairs[:10],
+                'pairs': self.pairs,
                 'total_signals': self.total_signals,
                 'signals_by_type': self.signals_by_type,
                 'sample_trades': self.trades[:100]  # First 100 trades
@@ -257,16 +257,20 @@ class SimpleBacktest:
 
 async def main():
     """Run simplified backtest"""
-    # Get top pairs
-    logger.info("Fetching top trading pairs...")
-    fetcher = BinanceFetcher(config)
-    pairs = fetcher.get_top_volume_pairs(top_n=25)
+    # Use fixed list of established coins that existed throughout 2022-2025
+    # This eliminates survivorship bias from using today's top volume coins
+    established_pairs = [
+        'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'XRPUSDT',
+        'SOLUSDT', 'DOGEUSDT', 'DOTUSDT', 'MATICUSDT', 'AVAXUSDT',
+        'LINKUSDT', 'UNIUSDT', 'ATOMUSDT', 'LTCUSDT', 'ETCUSDT',
+        'NEARUSDT', 'ALGOUSDT', 'APTUSDT', 'FILUSDT', 'ARBUSDT',
+        'OPUSDT', 'INJUSDT', 'SANDUSDT', 'MANAUSDT', 'RNDRUSDT'
+    ]
 
-    if not pairs:
-        logger.error("Failed to fetch pairs")
-        return
+    logger.info(f"Using fixed list of established coins (eliminates survivorship bias)")
+    logger.info(f"✓ Will backtest {len(established_pairs)} pairs: {', '.join(established_pairs[:10])}...")
 
-    logger.info(f"✓ Will backtest {len(pairs)} pairs: {', '.join(pairs[:10])}...")
+    pairs = established_pairs
 
     # Backtest period - last 3 years
     end_date = datetime.now(timezone.utc)
