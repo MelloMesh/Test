@@ -5,6 +5,7 @@ Run the Crypto Market Agents system with Binance Futures (globally accessible).
 import asyncio
 import logging
 import sys
+from dotenv import load_dotenv
 from crypto_market_agents.config import SystemConfig, ExchangeConfig
 from crypto_market_agents.orchestrator import AgentOrchestrator
 
@@ -44,6 +45,9 @@ async def main():
 
     # Setup logging FIRST
     setup_logging()
+
+    # Load environment variables from .env file
+    load_dotenv()
 
     print("=" * 80)
     print("CRYPTO MARKET AGENTS - BINANCE FUTURES EDITION")
