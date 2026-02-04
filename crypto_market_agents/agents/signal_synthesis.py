@@ -12,6 +12,16 @@ from ..config import SignalSynthesisConfig
 from ..utils.market_metrics import MarketMetricsCalculator
 
 
+# Signal synthesis constants
+MIN_STOP_DISTANCE_PCT = 0.1  # Minimum 0.1% distance between entry and stop
+SR_CONFLUENCE_DISTANCE_PCT = 0.01  # Within 1% for S/R confluence
+SR_CONFLUENCE_EXTENDED_PCT = 0.02  # Within 2% for extended S/R check
+FIBONACCI_GP_DISTANCE_PCT = 0.02  # Within 2% of golden pocket
+PSYCHOLOGICAL_LEVEL_TOLERANCE_LARGE = 0.01  # 1% tolerance for large prices
+PSYCHOLOGICAL_LEVEL_TOLERANCE_SMALL = 0.02  # 2% tolerance for small prices
+CONFLUENCE_SCORE_LIMIT_THRESHOLD = 4  # Minimum confluence score for LIMIT orders
+
+
 class SignalSynthesisAgent(BaseAgent):
     """
     Agent that synthesizes signals from all other agents.
@@ -298,7 +308,7 @@ class SignalSynthesisAgent(BaseAgent):
         sr_score = 0
         if sr_confluence:
             # Boost score if near strong S/R level
-            if sr_confluence.distance_percent < 0.01:  # Within 1%
+            if sr_confluence.distance_percent < SR_CONFLUENCE_DISTANCE_PCT:
                 sr_weight = min(sr_confluence.confluence_score / 100, 0.20)
 
                 if sr_confluence.zone_type == 'support':
@@ -333,9 +343,9 @@ class SignalSynthesisAgent(BaseAgent):
                         f"🎯 Golden Pocket (${fib_levels.golden_pocket_low:.2f}-${fib_levels.golden_pocket_high:.2f}) "
                         f"in {fib_levels.swing_direction} swing"
                     )
-            # Near golden pocket (within 2%)
-            elif fib_levels.distance_from_golden_pocket < 0.02:
-                gp_boost = 0.10 * (1 - fib_levels.distance_from_golden_pocket / 0.02)
+            # Near golden pocket
+            elif fib_levels.distance_from_golden_pocket < FIBONACCI_GP_DISTANCE_PCT:
+                gp_boost = 0.10 * (1 - fib_levels.distance_from_golden_pocket / FIBONACCI_GP_DISTANCE_PCT)
                 if fib_levels.swing_direction == 'bullish':
                     fib_score += gp_boost
                 else:
@@ -411,6 +421,20 @@ class SignalSynthesisAgent(BaseAgent):
         Returns:
             Tuple of (stop, target)
         """
+        # Input validation
+        if entry <= 0:
+            self.logger.error(f"Invalid entry price: {entry}")
+            # Fallback to simple percentage
+            entry = price_signal.price if price_signal.price > 0 else 1.0
+
+        if direction not in ["LONG", "SHORT"]:
+            self.logger.error(f"Invalid direction: {direction}, defaulting to LONG")
+            direction = "LONG"
+
+        if reward_risk_ratio <= 0:
+            self.logger.warning(f"Invalid R:R ratio: {reward_risk_ratio}, using 2.0")
+            reward_risk_ratio = 2.0
+
         # Calculate dynamic stop loss based on liquidity and volatility
         liquidity_usd = 0
         if volume_signal:
@@ -529,6 +553,26 @@ class SignalSynthesisAgent(BaseAgent):
                 # Default: risk-reward ratio
                 target = entry - (risk * reward_risk_ratio)
 
+        # Final validation: ensure stop and target are valid
+        stop_distance_pct = abs(stop - entry) / entry * 100
+        if stop_distance_pct < MIN_STOP_DISTANCE_PCT:
+            self.logger.warning(
+                f"{price_signal.symbol}: Stop too close to entry ({stop_distance_pct:.2f}%), "
+                f"adjusting to minimum {MIN_STOP_DISTANCE_PCT}%"
+            )
+            if direction == "LONG":
+                stop = entry * (1 - MIN_STOP_DISTANCE_PCT / 100)
+            else:
+                stop = entry * (1 + MIN_STOP_DISTANCE_PCT / 100)
+
+        # Ensure target is in correct direction
+        if direction == "LONG" and target <= entry:
+            self.logger.error(f"{price_signal.symbol}: Invalid LONG target {target} <= entry {entry}")
+            target = entry * 1.01  # Fallback to 1% profit
+        elif direction == "SHORT" and target >= entry:
+            self.logger.error(f"{price_signal.symbol}: Invalid SHORT target {target} >= entry {entry}")
+            target = entry * 0.99  # Fallback to 1% profit
+
         return round(stop, 8), round(target, 8)
 
     def _determine_order_type(
@@ -565,7 +609,7 @@ class SignalSynthesisAgent(BaseAgent):
         confluence_score = 0
 
         # Check for HTF S/R confluence (+2 to +4 points)
-        if sr_confluence and sr_confluence.distance_percent < 0.02:  # Within 2%
+        if sr_confluence and sr_confluence.distance_percent < SR_CONFLUENCE_EXTENDED_PCT:
             confluence_score += min(sr_confluence.strength, 4)
 
         # Check for Golden Pocket (+4 points - institutional zone!)
@@ -584,8 +628,8 @@ class SignalSynthesisAgent(BaseAgent):
         if volume_signal and volume_signal.spike_detected:
             return "MARKET", confluence_score
 
-        # Use LIMIT for high confluence (≥4 points)
-        if confluence_score >= 4:
+        # Use LIMIT for high confluence
+        if confluence_score >= CONFLUENCE_SCORE_LIMIT_THRESHOLD:
             return "LIMIT", confluence_score
 
         # Default to MARKET for lower confluence

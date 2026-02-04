@@ -171,7 +171,8 @@ class FibonacciAgent(BaseAgent):
 
             # Calculate distance from golden pocket
             gp_mid = (golden_pocket_low + golden_pocket_high) / 2
-            distance_from_gp = abs(current_price - gp_mid) / current_price
+            # Prevent division by zero
+            distance_from_gp = abs(current_price - gp_mid) / current_price if current_price > 0 else 1.0
 
             return FibonacciLevels(
                 symbol=symbol,

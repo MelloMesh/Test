@@ -21,6 +21,7 @@ from .agents.learning_agent import LearningAgent
 from .agents.signal_synthesis import SignalSynthesisAgent
 from .schemas import SystemReport, TradingSignal
 from .utils.logging import setup_logger
+from .integrations.telegram_bot import TelegramBot
 
 
 class AgentOrchestrator:
@@ -54,6 +55,15 @@ class AgentOrchestrator:
         self.fibonacci_agent: Optional[FibonacciAgent] = None
         self.learning_agent: Optional[LearningAgent] = None
         self.signal_synthesis_agent: Optional[SignalSynthesisAgent] = None
+
+        # Telegram bot integration
+        self.telegram_bot: Optional[TelegramBot] = None
+        if config.telegram.enabled:
+            self.telegram_bot = TelegramBot(
+                bot_token=config.telegram.bot_token,
+                chat_id=config.telegram.chat_id,
+                enabled=True
+            )
 
         # Report generation
         self.report_task: Optional[asyncio.Task] = None
@@ -201,6 +211,15 @@ class AgentOrchestrator:
 
         self.logger.info("All agents started successfully")
 
+        # Send startup notification to Telegram
+        if self.telegram_bot and self.config.telegram.send_alerts:
+            await self.telegram_bot.send_alert(
+                "System Started",
+                f"✅ {len(self.agents)} agents initialized and running\n"
+                f"📊 Monitoring {len(self.config.symbols) if self.config.symbols else 'all'} symbols",
+                critical=False
+            )
+
     async def stop(self):
         """Stop all agents and the orchestrator."""
         if not self.running:
@@ -224,6 +243,10 @@ class AgentOrchestrator:
         # Disconnect from exchange
         if self.exchange:
             await self.exchange.disconnect()
+
+        # Close Telegram bot session
+        if self.telegram_bot:
+            await self.telegram_bot.close()
 
         self.logger.info("Orchestrator stopped")
 
@@ -288,8 +311,18 @@ class AgentOrchestrator:
                         f"(confidence: {signal.confidence:.2f}) - {signal.rationale}"
                     )
 
+                # Send top signals to Telegram
+                if self.telegram_bot and self.config.telegram.send_signals:
+                    max_signals = self.config.telegram.max_signals_per_batch
+                    sent = await self.telegram_bot.send_signals_batch(trading_signals, max_signals)
+                    if sent > 0:
+                        self.logger.info(f"Sent {sent} signals to Telegram")
+
         except Exception as e:
             self.logger.error(f"Failed to generate report: {e}", exc_info=True)
+            # Send error alert to Telegram
+            if self.telegram_bot and self.config.telegram.send_alerts:
+                await self.telegram_bot.send_error(str(e), "Report generation")
 
     async def run_forever(self):
         """

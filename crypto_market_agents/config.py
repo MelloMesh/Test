@@ -95,6 +95,18 @@ class LearningConfig:
 
 
 @dataclass
+class TelegramConfig:
+    """Configuration for Telegram Bot."""
+    enabled: bool = True
+    bot_token: str = ""  # Loaded from environment
+    chat_id: str = ""  # Loaded from environment
+    send_signals: bool = True  # Send trading signals
+    send_alerts: bool = True  # Send system alerts
+    send_trade_updates: bool = True  # Send trade execution updates
+    max_signals_per_batch: int = 5  # Maximum signals to send at once
+
+
+@dataclass
 class SystemConfig:
     """Main system configuration."""
     exchange: ExchangeConfig = field(default_factory=ExchangeConfig)
@@ -105,6 +117,7 @@ class SystemConfig:
     sr_detection: SRDetectionConfig = field(default_factory=SRDetectionConfig)
     fibonacci: FibonacciConfig = field(default_factory=FibonacciConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
     # Global settings
     log_level: str = "INFO"
@@ -126,5 +139,10 @@ class SystemConfig:
 
         # System configuration
         config.log_level = os.getenv("LOG_LEVEL", "INFO")
+
+        # Telegram configuration
+        config.telegram.bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        config.telegram.chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        config.telegram.enabled = bool(config.telegram.bot_token and config.telegram.chat_id)
 
         return config
