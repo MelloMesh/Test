@@ -74,6 +74,9 @@ class LearningAgent(BaseAgent):
         self.closed_trades: List[PaperTrade] = []
         self.open_trades: List[PaperTrade] = []
 
+        # Track active positions to prevent duplicates
+        self.active_positions: Dict[str, str] = {}  # symbol -> trade_id
+
         # Strategy metrics
         self.current_metrics: Optional[StrategyMetrics] = None
 
@@ -164,6 +167,14 @@ class LearningAgent(BaseAgent):
         if not self.paper_trading:
             return None
 
+        # Check for duplicate position
+        if signal.asset in self.active_positions:
+            self.logger.debug(
+                f"Position already open for {signal.asset} "
+                f"(trade {self.active_positions[signal.asset][:8]}), skipping duplicate"
+            )
+            return None
+
         try:
             trade = PaperTrade(
                 trade_id=str(uuid.uuid4()),
@@ -188,6 +199,9 @@ class LearningAgent(BaseAgent):
 
             self.paper_trades.append(trade)
             self.open_trades.append(trade)
+
+            # Track active position
+            self.active_positions[signal.asset] = trade.trade_id
 
             self.logger.info(
                 f"Opened paper trade {trade.trade_id[:8]} for {signal.asset} "
@@ -273,6 +287,10 @@ class LearningAgent(BaseAgent):
             # Move to closed trades
             self.open_trades.remove(trade)
             self.closed_trades.append(trade)
+
+            # Remove from active positions
+            if trade.symbol in self.active_positions:
+                del self.active_positions[trade.symbol]
 
             self.logger.info(
                 f"Closed paper trade {trade.trade_id[:8]} for {trade.symbol} "
@@ -544,10 +562,15 @@ class LearningAgent(BaseAgent):
 
                         if trade.outcome == 'OPEN':
                             self.open_trades.append(trade)
+                            # Rebuild active positions tracking
+                            self.active_positions[trade.symbol] = trade.trade_id
                         else:
                             self.closed_trades.append(trade)
 
-                self.logger.info(f"Loaded {len(self.paper_trades)} paper trades from disk")
+                self.logger.info(
+                    f"Loaded {len(self.paper_trades)} paper trades from disk "
+                    f"({len(self.open_trades)} open, {len(self.closed_trades)} closed)"
+                )
 
             # Load knowledge base
             if self.knowledge_file.exists():
