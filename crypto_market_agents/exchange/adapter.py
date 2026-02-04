@@ -8,6 +8,7 @@ import logging
 from .base import BaseExchange
 from .bybit import BybitExchange
 from .coinbase import CoinbaseExchange
+from .binance import BinanceExchange
 from ..config import ExchangeConfig
 
 
@@ -66,6 +67,23 @@ class ExchangeFactory:
                 timeout=config.timeout
             )
 
+        elif exchange_name == "binance":
+            use_futures = config.testnet  # Use config.testnet to indicate futures
+            logger.info(
+                f"Using Binance {'Futures' if use_futures else 'Spot'} API - "
+                "Globally accessible"
+            )
+
+            return BinanceExchange(
+                api_key=config.api_key,
+                api_secret=config.api_secret,
+                use_futures=use_futures,
+                testnet=False,  # Testnet handled separately
+                rate_limit=config.rate_limit_per_second,
+                max_retries=config.max_retries,
+                timeout=config.timeout
+            )
+
         # Add more exchanges here as needed:
         # elif exchange_name == "kraken":
         #     return KrakenExchange(...)
@@ -87,6 +105,12 @@ def get_us_compliant_exchanges() -> dict:
         Dictionary of exchange information
     """
     return {
+        "binance": {
+            "name": "Binance Futures",
+            "api_docs": "https://binance-docs.github.io/apidocs/futures/en/",
+            "us_accessible": True,
+            "notes": "Futures API globally accessible (check local regulations)"
+        },
         "coinbase": {
             "name": "Coinbase Advanced Trade",
             "api_docs": "https://docs.cloud.coinbase.com/advanced-trade-api/docs",
