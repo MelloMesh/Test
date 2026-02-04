@@ -10,6 +10,7 @@ from ..exchange.base import BaseExchange
 from ..schemas import TradingSignal, PriceActionSignal, MomentumSignal, VolumeSignal
 from ..config import SignalSynthesisConfig
 from ..utils.market_metrics import MarketMetricsCalculator
+from ..utils.signal_formatter import format_price
 
 
 # Signal synthesis constants
@@ -314,13 +315,13 @@ class SignalSynthesisAgent(BaseAgent):
                 if sr_confluence.zone_type == 'support':
                     sr_score += sr_weight
                     rationale_parts.append(
-                        f"HTF {sr_confluence.zone_type} @ ${sr_confluence.price:,.2f} "
+                        f"HTF {sr_confluence.zone_type} @ ${format_price(sr_confluence.price)} "
                         f"({sr_confluence.strength} levels)"
                     )
                 elif sr_confluence.zone_type == 'resistance':
                     sr_score -= sr_weight
                     rationale_parts.append(
-                        f"HTF {sr_confluence.zone_type} @ ${sr_confluence.price:,.2f} "
+                        f"HTF {sr_confluence.zone_type} @ ${format_price(sr_confluence.price)} "
                         f"({sr_confluence.strength} levels)"
                     )
 
@@ -333,14 +334,14 @@ class SignalSynthesisAgent(BaseAgent):
                     # Price at golden pocket of bullish swing = BUY opportunity
                     fib_score += 0.20
                     rationale_parts.append(
-                        f"🎯 Golden Pocket (${fib_levels.golden_pocket_low:.2f}-${fib_levels.golden_pocket_high:.2f}) "
+                        f"🎯 Golden Pocket (${format_price(fib_levels.golden_pocket_low)}-${format_price(fib_levels.golden_pocket_high)}) "
                         f"in {fib_levels.swing_direction} swing"
                     )
                 else:
                     # Price at golden pocket of bearish swing = SELL opportunity
                     fib_score -= 0.20
                     rationale_parts.append(
-                        f"🎯 Golden Pocket (${fib_levels.golden_pocket_low:.2f}-${fib_levels.golden_pocket_high:.2f}) "
+                        f"🎯 Golden Pocket (${format_price(fib_levels.golden_pocket_low)}-${format_price(fib_levels.golden_pocket_high)}) "
                         f"in {fib_levels.swing_direction} swing"
                     )
             # Near golden pocket
