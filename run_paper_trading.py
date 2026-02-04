@@ -89,21 +89,18 @@ class PaperTradingEngine:
         token, chat_id = load_telegram_credentials()
         if token and chat_id:
             self.telegram_bot = TradingTelegramBot(token, chat_id, config)
-            logger.info("✅ Telegram bot initialized")
         else:
-            logger.warning("⚠️ Telegram bot not configured")
+            logger.warning("⚠️ Telegram not configured - signals will not be sent")
 
         # Initialize notification manager (requires telegram_bot)
         self.notification_manager = None
         if self.telegram_bot:
             self.notification_manager = NotificationManager(self.telegram_bot, self)
-            logger.info("✅ Notification manager initialized")
 
         # Initialize trade review agent (requires telegram_bot)
         self.trade_review_agent = None
         if self.telegram_bot:
             self.trade_review_agent = get_trade_review_agent(self, self.telegram_bot)
-            logger.info("✅ Trade review agent initialized")
 
         # Results file
         self.results_file = "paper_trading_results.json"
@@ -152,32 +149,48 @@ class PaperTradingEngine:
     async def scan_for_signals(self):
         """Scan market for new trading signals and open positions"""
         try:
-            # Get top pairs by volume (same as live scanner)
-            pairs = self.exchange.get_top_volume_pairs(top_n=200)
+            # Get top pairs by volume - scan 50 for optimal speed/quality
+            all_pairs = self.exchange.get_top_volume_pairs(top_n=50)
 
-            if not pairs:
-                logger.warning("No pairs fetched for scanning")
+            if not all_pairs:
                 return
 
-            logger.info(f"📊 Scanning {len(pairs)} pairs for signals...")
+            # Filter out pairs we already have positions in
+            pairs = [p for p in all_pairs if p not in self.open_trades and p not in self.pending_limits]
+
+            logger.info(f"🔍 Scanning {len(pairs)} pairs...")
             signals_found = 0
+            pairs_checked = 0
 
             # Scan each pair
             for symbol in pairs:
-                # Skip if we already have a position
-                if symbol in self.open_trades or symbol in self.pending_limits:
-                    continue
-
                 try:
-                    # Fetch HTF context
-                    htf_context = self.htf_analyzer.get_htf_context_for_pair(symbol)
+                    pairs_checked += 1
 
-                    if not htf_context:
+                    # Fetch HTF data
+                    end_date = datetime.now(timezone.utc)
+                    start_date = end_date - timedelta(days=180)
+
+                    weekly_data = self.exchange.fetch_historical_data(symbol, '1w', start_date, end_date)
+                    daily_data = self.exchange.fetch_historical_data(symbol, '1d', start_date, end_date)
+                    h4_data = self.exchange.fetch_historical_data(symbol, '4h', start_date, end_date)
+
+                    if weekly_data.empty or daily_data.empty or h4_data.empty:
                         continue
 
-                    # Get current price
-                    df = self.exchange.fetch_current_data(symbol, '30m', limit=200)
-                    if df.empty:
+                    # Analyze HTF context
+                    htf_context = self.htf_analyzer.analyze_market_context(
+                        instrument=symbol,
+                        weekly_data=weekly_data,
+                        daily_data=daily_data,
+                        h4_data=h4_data
+                    )
+
+                    # Get current LTF data
+                    ltf_start = end_date - timedelta(days=7)
+                    df = self.exchange.fetch_historical_data(symbol, '30m', ltf_start, end_date)
+
+                    if df.empty or len(df) < 50:
                         continue
 
                     current_price = float(df.iloc[-1]['close'])
@@ -192,15 +205,18 @@ class PaperTradingEngine:
 
                     # Filter for high-confluence signals
                     for signal in signals:
-                        confluence = self.confluence_scorer.calculate_score(
+                        confluence_score = self.confluence_scorer.evaluate_signal(
+                            symbol=symbol,
                             signal_name=signal['signal_name'],
+                            direction=signal['direction'],
+                            current_price=current_price,
                             htf_context=htf_context,
                             has_volume_confirmation=signal.get('volume_confirm', False),
                             has_divergence=signal.get('divergence', False)
                         )
 
-                        # Only take signals with confluence >= 8 (market orders only, 67%+ confluence)
-                        if confluence >= 8:
+                        # Only take MARKET orders (score >= 8)
+                        if confluence_score.order_type == 'MARKET':
                             signals_found += 1
 
                             # Open trade
@@ -211,20 +227,21 @@ class PaperTradingEngine:
                                 entry_price=current_price,
                                 htf_context=htf_context,
                                 order_type='MARKET',
-                                trade_type=signal.get('trade_type', ''),
-                                confluence_score=confluence
+                                trade_type=confluence_score.trade_type,
+                                confluence_score=confluence_score.total_score
                             )
 
-                            logger.info(f"✅ Opened {signal['direction']} position on {symbol} (confluence: {confluence}/12)")
+                            logger.info(f"📈 {signal['direction'].upper()} {symbol} @ ${current_price:,.2f} (score: {confluence_score.total_score}/12)")
                             break  # Only one signal per pair
+
+                    # Rate limiting
+                    await asyncio.sleep(0.2)
 
                 except Exception as e:
                     logger.debug(f"Error scanning {symbol}: {e}")
+                    continue
 
-            if signals_found == 0:
-                logger.info("No high-quality signals found this scan")
-            else:
-                logger.info(f"✅ Opened {signals_found} new position(s)")
+            logger.info(f"✅ Scan complete - {pairs_checked} pairs checked, {signals_found} signals found")
 
         except Exception as e:
             logger.error(f"Error in scan_for_signals: {e}")
@@ -978,31 +995,26 @@ async def main():
     """Run paper trading engine"""
 
     print(f"\n{'='*80}")
-    print(f"{'🚀 HTF PAPER TRADING ENGINE':^80}")
+    print(f"{'🤖 AUTOMATED PAPER TRADING':^80}")
     print(f"{'='*80}\n")
-    print(f"  This mode simulates trades from live signals")
-    print(f"  No real money is used - perfect for testing strategies!")
+    print(f"  Scans 50 pairs every 30 minutes for high-quality setups")
+    print(f"  Simulated trading - no real money at risk")
     print(f"\n{'='*80}\n")
 
     # Initialize engine
     engine = PaperTradingEngine(initial_capital=10000)
 
-    # Start notification manager background tasks
+    # Start background tasks
     if engine.notification_manager:
         await engine.notification_manager.start()
-        logger.info("✅ Notification manager tasks started")
 
-    # Start trade review agent background tasks
     if engine.trade_review_agent:
         await engine.trade_review_agent.start()
-        logger.info("✅ Trade review agent started")
 
     # Display current performance
     engine.display_performance()
 
-    print("📡 Listening for signals from live scanner...")
-    print("   (Signals will be picked up automatically when scanner runs)")
-    print("\n⏳ Checking open trades every 60 seconds...\n")
+    print("\n🚀 Starting automated trading...\n")
 
     # Main loop
     scan_counter = 0
