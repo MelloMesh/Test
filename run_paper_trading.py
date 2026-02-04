@@ -152,13 +152,14 @@ class PaperTradingEngine:
     async def scan_for_signals(self):
         """Scan market for new trading signals and open positions"""
         try:
-            # Get top pairs by volume
-            pairs = self.exchange.get_top_volume_pairs(top_n=25)
+            # Get top pairs by volume (same as live scanner)
+            pairs = self.exchange.get_top_volume_pairs(top_n=200)
 
             if not pairs:
                 logger.warning("No pairs fetched for scanning")
                 return
 
+            logger.info(f"📊 Scanning {len(pairs)} pairs for signals...")
             signals_found = 0
 
             # Scan each pair
