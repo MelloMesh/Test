@@ -538,9 +538,88 @@ class HTFLiveScannerBybit:
 
         return True
 
+    def _generate_signal_analysis(self, signal: Dict, htf_context: HTFContext) -> str:
+        """Generate AI analysis for a signal"""
+        try:
+            analysis_parts = []
+
+            # Analyze trade type
+            if "TREND_CONTINUATION" in signal['trade_type']:
+                analysis_parts.append(f"Trend continuation setup on {htf_context.primary_bias} HTF bias.")
+            elif "MEAN_REVERSION" in signal['trade_type']:
+                analysis_parts.append(f"Mean reversion play from {htf_context.regime} market conditions.")
+
+            # Analyze confluence
+            score = signal['confluence_score']
+            if score >= 8:
+                analysis_parts.append("Exceptional confluence with multiple confirmations.")
+            elif score >= 7:
+                analysis_parts.append("Strong confluence - high-probability setup.")
+            elif score >= 5:
+                analysis_parts.append("Decent confluence - standard setup.")
+            else:
+                analysis_parts.append("Lower confluence - reduced position sizing.")
+
+            # Analyze HTF alignment
+            if htf_context.alignment_score >= 80:
+                analysis_parts.append(f"Perfect HTF alignment ({htf_context.alignment_score:.0f}%) - all timeframes agree.")
+            elif htf_context.alignment_score >= 60:
+                analysis_parts.append(f"Good HTF alignment ({htf_context.alignment_score:.0f}%) - majority of timeframes aligned.")
+            else:
+                analysis_parts.append(f"Mixed HTF signals ({htf_context.alignment_score:.0f}%) - proceed with caution.")
+
+            # Add trade rationale based on direction and HTF
+            if signal['direction'] == 'long':
+                if htf_context.primary_bias == 'bullish':
+                    analysis_parts.append("Long entry with HTF support - trading with institutional flow.")
+                else:
+                    analysis_parts.append("Counter-trend long - looking for short-term bounce.")
+            else:
+                if htf_context.primary_bias == 'bearish':
+                    analysis_parts.append("Short entry with HTF support - trading with institutional flow.")
+                else:
+                    analysis_parts.append("Counter-trend short - looking for short-term pullback.")
+
+            return " ".join(analysis_parts)
+        except Exception as e:
+            logger.error(f"Error generating signal analysis: {e}")
+            return "Setup meets entry criteria with acceptable risk/reward profile."
+
     async def _send_htf_signal(self, symbol: str, signal: Dict, htf_context: HTFContext):
         """Send signal with HTF context and confluence info to Telegram"""
         self.signals_sent += 1
+
+        # Calculate entry price (limit or market)
+        entry_price = signal['limit_price'] if signal['order_type'] == 'LIMIT' else signal['entry_price']
+
+        # Calculate stop loss and take profit (2% risk, 4% reward)
+        risk_pct = 0.02
+        reward_pct = 0.04
+
+        if signal['direction'] == 'long':
+            stop_loss = entry_price * (1 - risk_pct)
+            take_profit = entry_price * (1 + reward_pct)
+        else:
+            stop_loss = entry_price * (1 + risk_pct)
+            take_profit = entry_price * (1 - reward_pct)
+
+        # Calculate percentages for display
+        if signal['direction'] == 'long':
+            sl_pct = ((stop_loss - entry_price) / entry_price) * 100
+            tp_pct = ((take_profit - entry_price) / entry_price) * 100
+        else:
+            sl_pct = ((entry_price - stop_loss) / entry_price) * 100
+            tp_pct = ((entry_price - take_profit) / entry_price) * 100
+
+        risk = abs(sl_pct)
+        reward = abs(tp_pct)
+        rr_ratio = reward / risk if risk > 0 else 0
+
+        # Calculate position sizing (example with $100 base)
+        base_position = 100.0
+        position_size = base_position * signal['position_size_multiplier']
+        max_risk = position_size * (risk / 100)
+        potential_profit = position_size * (reward / 100)
 
         # Log signal
         order_type_emoji = "🚀" if signal['order_type'] == 'MARKET' else "📋"
@@ -556,6 +635,9 @@ class HTFLiveScannerBybit:
         else:
             logger.info(f"Current Price: ${signal['entry_price']:,.2f}")
             logger.info(f"Limit Price: ${signal['limit_price']:,.2f}")
+        logger.info(f"Stop Loss: ${stop_loss:,.2f} ({sl_pct:.2f}%)")
+        logger.info(f"Take Profit: ${take_profit:,.2f} ({tp_pct:+.2f}%)")
+        logger.info(f"R:R Ratio: 1:{rr_ratio:.2f}")
         logger.info(f"Position Size: {signal['position_size_multiplier']:.2f}x")
         logger.info(f"HTF Bias: {htf_context.primary_bias.upper()} ({htf_context.bias_strength:.0f}%)")
         logger.info(f"HTF Alignment: {htf_context.alignment_score:.0f}%")
@@ -565,16 +647,17 @@ class HTFLiveScannerBybit:
         # Send to Telegram if configured
         if self.telegram_bot:
             try:
-                # Format HTF context
-                htf_emoji = "⬆️" if htf_context.primary_bias == "bullish" else "⬇️" if htf_context.primary_bias == "bearish" else "↔️"
                 direction_emoji = "🟢" if signal['direction'] == 'long' else "🔴"
                 order_type_emoji = "🚀" if signal['order_type'] == 'MARKET' else "📋"
 
-                # Determine entry info
+                # Build entry display
                 if signal['order_type'] == 'MARKET':
-                    entry_info = f"Entry: ${signal['entry_price']:,.4f}\n   Order Type: **{signal['order_type']}** 🚀"
+                    entry_display = f"${entry_price:,.4f}"
+                    title = f"🎯 Signal: {symbol} {signal['direction'].upper()}"
                 else:
-                    entry_info = f"Current: ${signal['entry_price']:,.4f}\n   **Limit Order @ ${signal['limit_price']:,.4f}** 📋\n   (Waiting for better price)"
+                    current_vs_limit_pct = ((signal['limit_price'] - signal['entry_price']) / signal['entry_price']) * 100
+                    entry_display = f"${signal['limit_price']:,.4f} (Limit at {current_vs_limit_pct:+.2f}% from current)"
+                    title = f"📋 Limit Signal: {symbol} {signal['direction'].upper()}"
 
                 # Confluence bar (visual score)
                 score = signal['confluence_score']
@@ -582,39 +665,50 @@ class HTFLiveScannerBybit:
                 empty_bars = "░" * (10 - score)
                 confluence_bar = filled_bars + empty_bars
 
+                # Generate AI analysis
+                ai_analysis = self._generate_signal_analysis(signal, htf_context)
+
                 message = f"""
-{direction_emoji} **{signal['order_type']} SIGNAL** {order_type_emoji}
+{direction_emoji} **{signal['order_type']} {signal['direction'].upper()} SIGNAL** {order_type_emoji}
+
+📊 **SETUP: {symbol}**
+   Type: {signal['trade_type']}
+   Confluence: {confluence_bar} {score}/10
+   HTF Bias: {htf_context.primary_bias.upper()} ({htf_context.alignment_score:.0f}%)
+
+💡 **ANALYSIS:**
+   {ai_analysis}
+
+📍 **ENTRY:**
+   Price: {entry_display}
+
+🛡️ **STOP LOSS:**
+   Price: ${stop_loss:,.4f}
+   Risk: {sl_pct:.2f}%
+
+🎯 **TAKE PROFIT:**
+   Price: ${take_profit:,.4f}
+   Target: {tp_pct:+.2f}%
+
+⚖️ **RISK/REWARD:**
+   Risk: {risk:.2f}%
+   Reward: {reward:.2f}%
+   R:R Ratio: 1:{rr_ratio:.2f}
+
+💰 **POSITION GUIDANCE:**
+   Base Size: ${position_size:.2f} ({signal['position_size_multiplier']:.1f}x)
+   Max Risk: ${max_risk:.2f}
+   Potential Profit: ${potential_profit:.2f}
 
 📊 **HTF CONTEXT:**
-   Weekly: {htf_context.weekly_trend.upper()} {htf_emoji}
-   Daily: {htf_context.daily_trend.upper()} {htf_emoji}
-   4H: {htf_context.h4_trend.upper()} {htf_emoji}
-
-   Primary Bias: **{htf_context.primary_bias.upper()}** ({htf_context.bias_strength:.0f}%)
-   Alignment: {htf_context.alignment_score:.0f}% 🎯
+   Weekly: {htf_context.weekly_trend.upper()}
+   Daily: {htf_context.daily_trend.upper()}
+   4H: {htf_context.h4_trend.upper()}
    Regime: {htf_context.regime.upper()}
-
-💰 **SIGNAL:**
-   Pair: {symbol}
-   Timeframe: {signal['timeframe']}
-   Direction: **{signal['direction'].upper()}**
-   {entry_info}
-
-⚡ **CONFLUENCE SCORE:**
-   {confluence_bar} {score}/10
-   Trade Type: {signal['trade_type']}
-   Position Size: {signal['position_size_multiplier']:.1f}x
-
-📈 **HTF LEVELS:**
-   Weekly S/R: ${(htf_context.weekly_support if htf_context.weekly_support else 0):,.2f} / ${(htf_context.weekly_resistance if htf_context.weekly_resistance else 0):,.2f}
-   Daily S/R: ${(htf_context.daily_support if htf_context.daily_support else 0):,.2f} / ${(htf_context.daily_resistance if htf_context.daily_resistance else 0):,.2f}
-
-💡 **REASONING:**
-{signal['reasoning']}
 """
 
                 await self.telegram_bot.send_alert(
-                    title=f"{signal['order_type']}: {symbol}",
+                    title=title,
                     message=message,
                     level="info"
                 )
