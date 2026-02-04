@@ -3,12 +3,47 @@ Run the Crypto Market Agents system with Binance Futures (globally accessible).
 """
 
 import asyncio
+import logging
+import sys
 from crypto_market_agents.config import SystemConfig, ExchangeConfig
 from crypto_market_agents.orchestrator import AgentOrchestrator
 
 
+def setup_logging():
+    """Configure root logger to catch all agent logs."""
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Remove existing handlers
+    root_logger.handlers.clear()
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # File handler
+    file_handler = logging.FileHandler('crypto_agents.log')
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
+    # Reduce noise from HTTP libraries
+    logging.getLogger('aiohttp').setLevel(logging.WARNING)
+    logging.getLogger('asyncio').setLevel(logging.WARNING)
+
+
 async def main():
     """Run the system with Binance Futures."""
+
+    # Setup logging FIRST
+    setup_logging()
 
     print("=" * 80)
     print("CRYPTO MARKET AGENTS - BINANCE FUTURES EDITION")
