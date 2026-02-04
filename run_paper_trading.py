@@ -149,8 +149,8 @@ class PaperTradingEngine:
     async def scan_for_signals(self):
         """Scan market for new trading signals and open positions"""
         try:
-            # Get top pairs by volume - scan 50 for optimal speed/quality
-            all_pairs = self.exchange.get_top_volume_pairs(top_n=50)
+            # Get top pairs by volume - scan 200 for comprehensive coverage
+            all_pairs = self.exchange.get_top_volume_pairs(top_n=200)
 
             if not all_pairs:
                 return
@@ -158,14 +158,26 @@ class PaperTradingEngine:
             # Filter out pairs we already have positions in
             pairs = [p for p in all_pairs if p not in self.open_trades and p not in self.pending_limits]
 
-            logger.info(f"🔍 Scanning {len(pairs)} pairs...")
+            logger.info(f"🔍 Starting scan of {len(pairs)} pairs...")
             signals_found = 0
             pairs_checked = 0
+
+            # Temporarily suppress verbose HTF analyzer logging
+            htf_logger = logging.getLogger('analysis.higher_timeframe_analyzer')
+            signal_logger = logging.getLogger('signals.signal_discovery_htf')
+            original_htf_level = htf_logger.level
+            original_signal_level = signal_logger.level
+            htf_logger.setLevel(logging.WARNING)
+            signal_logger.setLevel(logging.WARNING)
 
             # Scan each pair
             for symbol in pairs:
                 try:
                     pairs_checked += 1
+
+                    # Progress update every 25 pairs
+                    if pairs_checked % 25 == 0:
+                        logger.info(f"   Progress: {pairs_checked}/{len(pairs)} pairs scanned... ({signals_found} signals found)")
 
                     # Fetch HTF data
                     end_date = datetime.now(timezone.utc)
@@ -231,7 +243,7 @@ class PaperTradingEngine:
                                 confluence_score=confluence_score.total_score
                             )
 
-                            logger.info(f"📈 {signal['direction'].upper()} {symbol} @ ${current_price:,.2f} (score: {confluence_score.total_score}/12)")
+                            logger.info(f"\n🎯 SIGNAL FOUND: {signal['direction'].upper()} {symbol} @ ${current_price:,.2f} (score: {confluence_score.total_score}/12)\n")
                             break  # Only one signal per pair
 
                     # Rate limiting
@@ -240,6 +252,10 @@ class PaperTradingEngine:
                 except Exception as e:
                     logger.debug(f"Error scanning {symbol}: {e}")
                     continue
+
+            # Restore logger levels
+            htf_logger.setLevel(original_htf_level)
+            signal_logger.setLevel(original_signal_level)
 
             logger.info(f"✅ Scan complete - {pairs_checked} pairs checked, {signals_found} signals found")
 
@@ -997,7 +1013,7 @@ async def main():
     print(f"\n{'='*80}")
     print(f"{'🤖 AUTOMATED PAPER TRADING':^80}")
     print(f"{'='*80}\n")
-    print(f"  Scans 50 pairs every 30 minutes for high-quality setups")
+    print(f"  Scans 200 pairs every 30 minutes for high-quality setups")
     print(f"  Simulated trading - no real money at risk")
     print(f"\n{'='*80}\n")
 
