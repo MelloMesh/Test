@@ -261,7 +261,7 @@ class SystemReport:
             "timestamp": self.timestamp.isoformat(),
             "active_agents": self.active_agents,
             "trading_signals": [s.to_dict() for s in self.trading_signals],
-            "agent_statuses": [s.to_dict() for s in self.agent_statuses]
+            "agent_statuses": [s.to_dict() if hasattr(s, 'to_dict') else s for s in self.agent_statuses]
         }
 
     def to_json(self) -> str:

@@ -279,7 +279,9 @@ class BinanceExchange(BaseExchange):
                 "240": "4h",
                 "360": "6h",
                 "1440": "1d",
-                "10080": "1w"
+                "4320": "3d",
+                "10080": "1w",
+                "43200": "1M"
             }
 
             binance_interval = interval_map.get(str(interval), interval)
