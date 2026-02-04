@@ -16,6 +16,7 @@ from .agents.price_action import PriceActionAgent
 from .agents.momentum import MomentumAgent
 from .agents.volume_spike import VolumeSpikeAgent
 from .agents.sr_detector import SRDetectionAgent
+from .agents.fibonacci_agent import FibonacciAgent
 from .agents.learning_agent import LearningAgent
 from .agents.signal_synthesis import SignalSynthesisAgent
 from .schemas import SystemReport, TradingSignal
@@ -50,6 +51,7 @@ class AgentOrchestrator:
         self.momentum_agent: Optional[MomentumAgent] = None
         self.volume_spike_agent: Optional[VolumeSpikeAgent] = None
         self.sr_agent: Optional[SRDetectionAgent] = None
+        self.fibonacci_agent: Optional[FibonacciAgent] = None
         self.learning_agent: Optional[LearningAgent] = None
         self.signal_synthesis_agent: Optional[SignalSynthesisAgent] = None
 
@@ -126,6 +128,18 @@ class AgentOrchestrator:
                 self.agents.append(self.sr_agent)
                 self.logger.info("S/R Detection Agent initialized")
 
+            # Fibonacci Agent
+            if hasattr(self.config, 'fibonacci') and self.config.fibonacci.enabled:
+                self.fibonacci_agent = FibonacciAgent(
+                    self.exchange,
+                    symbols,
+                    lookback=self.config.fibonacci.lookback,
+                    min_swing_size=self.config.fibonacci.min_swing_size,
+                    update_interval=self.config.fibonacci.update_interval
+                )
+                self.agents.append(self.fibonacci_agent)
+                self.logger.info("Fibonacci Agent initialized")
+
             # Learning Agent
             if hasattr(self.config, 'learning') and self.config.learning.enabled:
                 self.learning_agent = LearningAgent(
@@ -157,6 +171,7 @@ class AgentOrchestrator:
                         self.momentum_agent,
                         self.volume_spike_agent,
                         sr_agent=self.sr_agent,
+                        fibonacci_agent=self.fibonacci_agent,
                         learning_agent=self.learning_agent
                     )
                     self.agents.append(self.signal_synthesis_agent)

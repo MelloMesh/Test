@@ -122,6 +122,30 @@ class SRConfluence:
 
 
 @dataclass
+class FibonacciLevels:
+    """Fibonacci retracement and extension levels for a symbol."""
+    symbol: str
+    swing_high: float
+    swing_low: float
+    swing_direction: str  # 'bullish' or 'bearish'
+    swing_size_pct: float
+    retracement_levels: Dict[float, float]  # ratio -> price
+    extension_levels: Dict[float, float]  # ratio -> price
+    golden_pocket_low: float
+    golden_pocket_high: float
+    in_golden_pocket: bool
+    distance_from_golden_pocket: float
+    current_price: float
+    timestamp: datetime
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            **asdict(self),
+            "timestamp": self.timestamp.isoformat()
+        }
+
+
+@dataclass
 class PaperTrade:
     """Paper trade record for learning and strategy validation."""
     trade_id: str
@@ -214,12 +238,15 @@ class TradingSignal:
     confidence: float  # 0-1
     rationale: str
     timestamp: datetime
+    order_type: str = "MARKET"  # "LIMIT" or "MARKET"
+    confluence_score: int = 0  # Confluence score for limit order priority
 
     # Supporting data
     price_signal: Optional[Dict[str, Any]] = None
     momentum_signal: Optional[Dict[str, Any]] = None
     volume_signal: Optional[Dict[str, Any]] = None
     sr_data: Optional[Dict[str, Any]] = None
+    fib_data: Optional[Dict[str, Any]] = None
     learning_insights: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:

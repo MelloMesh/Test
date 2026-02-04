@@ -75,6 +75,15 @@ class SRDetectionConfig:
 
 
 @dataclass
+class FibonacciConfig:
+    """Configuration for Fibonacci Agent."""
+    enabled: bool = True
+    lookback: int = 100
+    min_swing_size: float = 0.02  # 2% minimum swing
+    update_interval: int = 300  # seconds (5 minutes)
+
+
+@dataclass
 class LearningConfig:
     """Configuration for Learning Agent."""
     enabled: bool = True
@@ -94,6 +103,7 @@ class SystemConfig:
     volume: VolumeConfig = field(default_factory=VolumeConfig)
     signal_synthesis: SignalSynthesisConfig = field(default_factory=SignalSynthesisConfig)
     sr_detection: SRDetectionConfig = field(default_factory=SRDetectionConfig)
+    fibonacci: FibonacciConfig = field(default_factory=FibonacciConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
 
     # Global settings
