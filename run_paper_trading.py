@@ -198,8 +198,8 @@ class PaperTradingEngine:
                             has_divergence=signal.get('divergence', False)
                         )
 
-                        # Only take signals with confluence >= 7
-                        if confluence >= 7:
+                        # Only take signals with confluence >= 8 (market orders only, 67%+ confluence)
+                        if confluence >= 8:
                             signals_found += 1
 
                             # Open trade

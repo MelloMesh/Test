@@ -36,18 +36,16 @@ class ConfluenceScorer:
     - Multiple Timeframe Confirmation (0-1 pt): Signal on multiple TFs
 
     Decision:
-    - 7+ points = MARKET order (ultra high conviction)
-    - 4-6 points = MARKET order (high conviction)
-    - 2-3 points = LIMIT order (wait for better price)
-    - 0-1 points = SKIP (not enough confluence)
+    - 8+ points = MARKET order (ultra high conviction, 67%+)
+    - 5-7 points = LIMIT order (high conviction, wait for better price)
+    - 0-4 points = SKIP (not enough confluence)
     """
 
     def __init__(self):
-        # Scoring thresholds
-        self.market_threshold_ultra = 7  # Ultra high conviction
-        self.market_threshold = 4         # High conviction
-        self.limit_threshold = 2          # Medium conviction
-        # Below limit_threshold = SKIP
+        # Scoring thresholds - UPDATED for quality over quantity
+        self.market_threshold = 8         # Ultra high conviction only
+        self.limit_threshold = 5          # High conviction gets limits
+        # Below 5 = SKIP (too low quality)
 
         # S/R proximity threshold (percentage)
         self.sr_proximity_perfect = 0.005  # Within 0.5% = perfect
@@ -255,7 +253,7 @@ class ConfluenceScorer:
 
             # Trend continuation (highest conviction)
             if is_with_trend and at_level in ['weekly_support', 'daily_support', 'weekly_resistance', 'daily_resistance']:
-                if score >= self.market_threshold_ultra:
+                if score >= 10:  # Ultra high (83%+)
                     trade_type = f"TREND_CONTINUATION_{direction.upper()}_ULTRA"
                     position_multiplier = 1.5  # Larger size
                 else:
