@@ -366,12 +366,31 @@ class HTFLiveScannerBybit:
 
     def _detect_ltf_signals(self, data: pd.DataFrame, htf_context: HTFContext) -> List[Dict]:
         """
-        Detect all possible LTF signals
+        Detect all possible LTF signals with proper support/resistance checks
 
         Returns list of potential signals for evaluation
         """
         signals = []
         latest = data.iloc[-1]
+        current_price = float(latest['close'])
+
+        # Find support and resistance levels
+        support_levels = self._find_support_levels(data)
+        resistance_levels = self._find_resistance_levels(data)
+
+        # Add HTF support/resistance if available
+        if htf_context.daily_support:
+            support_levels.append(htf_context.daily_support)
+        if htf_context.h4_support:
+            support_levels.append(htf_context.h4_support)
+        if htf_context.daily_resistance:
+            resistance_levels.append(htf_context.daily_resistance)
+        if htf_context.h4_resistance:
+            resistance_levels.append(htf_context.h4_resistance)
+
+        # Check if at key levels
+        at_support = self._is_near_support(current_price, support_levels)
+        at_resistance = self._is_near_resistance(current_price, resistance_levels)
 
         # Check for trend-following pullback
         if htf_context.allow_longs and self._is_bullish_pullback(data):
@@ -396,29 +415,29 @@ class HTFLiveScannerBybit:
                 'multi_tf': False
             })
 
-        # Check for mean reversion (oversold/overbought)
+        # Check for mean reversion - CRITICAL FIX: Only signal if at correct level
         rsi = latest['RSI_14'] if 'RSI_14' in latest else None
 
         if rsi is not None:
-            # Oversold bounce (works even in bearish HTF if at support)
-            if rsi < 30 and htf_context.allow_longs:
+            # Oversold bounce - ONLY if price is at support
+            if rsi < 30 and htf_context.allow_longs and at_support:
                 signals.append({
                     'direction': 'long',
                     'signal_name': 'RSI_Oversold_Bounce',
                     'timeframe': '30m',
-                    'reason': f'RSI oversold ({rsi:.0f}) at support',
+                    'reason': f'RSI oversold ({rsi:.0f}) AT SUPPORT - bounce setup',
                     'has_divergence': self._check_bullish_divergence(data),
                     'has_volume': self._check_volume_spike(data),
                     'multi_tf': False
                 })
 
-            # Overbought fade (works even in bullish HTF if at resistance)
-            if rsi > 70 and htf_context.allow_shorts:
+            # Overbought fade - ONLY if price is at resistance
+            if rsi > 70 and htf_context.allow_shorts and at_resistance:
                 signals.append({
                     'direction': 'short',
                     'signal_name': 'RSI_Overbought_Fade',
                     'timeframe': '30m',
-                    'reason': f'RSI overbought ({rsi:.0f}) at resistance',
+                    'reason': f'RSI overbought ({rsi:.0f}) AT RESISTANCE - rejection setup',
                     'has_divergence': self._check_bearish_divergence(data),
                     'has_volume': self._check_volume_spike(data),
                     'multi_tf': False
@@ -465,6 +484,80 @@ class HTFLiveScannerBybit:
         latest_volume = data['volume'].iloc[-1]
 
         return latest_volume > avg_volume * 1.5  # 50% above average
+
+    def _find_support_levels(self, data: pd.DataFrame, lookback: int = 50) -> List[float]:
+        """Find support levels from recent swing lows"""
+        if len(data) < lookback:
+            return []
+
+        recent_data = data.iloc[-lookback:]
+        support_levels = []
+
+        # Find local lows (swing lows)
+        for i in range(2, len(recent_data) - 2):
+            current_low = recent_data['low'].iloc[i]
+            prev_low = recent_data['low'].iloc[i-1]
+            prev_prev_low = recent_data['low'].iloc[i-2]
+            next_low = recent_data['low'].iloc[i+1]
+            next_next_low = recent_data['low'].iloc[i+2]
+
+            # Is this a swing low?
+            if (current_low < prev_low and current_low < prev_prev_low and
+                current_low < next_low and current_low < next_next_low):
+                support_levels.append(current_low)
+
+        # Also add recent lows
+        support_levels.append(recent_data['low'].min())
+
+        return support_levels
+
+    def _find_resistance_levels(self, data: pd.DataFrame, lookback: int = 50) -> List[float]:
+        """Find resistance levels from recent swing highs"""
+        if len(data) < lookback:
+            return []
+
+        recent_data = data.iloc[-lookback:]
+        resistance_levels = []
+
+        # Find local highs (swing highs)
+        for i in range(2, len(recent_data) - 2):
+            current_high = recent_data['high'].iloc[i]
+            prev_high = recent_data['high'].iloc[i-1]
+            prev_prev_high = recent_data['high'].iloc[i-2]
+            next_high = recent_data['high'].iloc[i+1]
+            next_next_high = recent_data['high'].iloc[i+2]
+
+            # Is this a swing high?
+            if (current_high > prev_high and current_high > prev_prev_high and
+                current_high > next_high and current_high > next_next_high):
+                resistance_levels.append(current_high)
+
+        # Also add recent highs
+        resistance_levels.append(recent_data['high'].max())
+
+        return resistance_levels
+
+    def _is_near_support(self, price: float, support_levels: List[float], tolerance_pct: float = 0.015) -> bool:
+        """Check if price is near any support level (within tolerance)"""
+        if not support_levels:
+            return False
+
+        for support in support_levels:
+            distance = abs(price - support) / support
+            if distance <= tolerance_pct:  # Within 1.5% of support
+                return True
+        return False
+
+    def _is_near_resistance(self, price: float, resistance_levels: List[float], tolerance_pct: float = 0.015) -> bool:
+        """Check if price is near any resistance level (within tolerance)"""
+        if not resistance_levels:
+            return False
+
+        for resistance in resistance_levels:
+            distance = abs(price - resistance) / resistance
+            if distance <= tolerance_pct:  # Within 1.5% of resistance
+                return True
+        return False
 
     def _is_bullish_pullback(self, data: pd.DataFrame) -> bool:
         """Detect bullish pullback pattern"""
