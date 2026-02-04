@@ -100,6 +100,12 @@ class SignalSynthesisAgent(BaseAgent):
         self.latest_signals = trading_signals
         self.signals_generated += len(trading_signals)
 
+        # Log signal generation stats
+        self.logger.info(
+            f"Signal Synthesis: Analyzed {len(all_symbols)} symbols, "
+            f"generated {len(trading_signals)} signals above confidence {self.config.min_confidence}"
+        )
+
         if trading_signals:
             self.logger.info(
                 f"Generated {len(trading_signals)} trading signals. "
@@ -307,6 +313,14 @@ class SignalSynthesisAgent(BaseAgent):
         elif total_score < -0.3:
             direction = "SHORT"
             confidence = min(1.0, abs(total_score))
+
+        # Debug logging for rejected signals (sample every 100th symbol)
+        if not direction and hash(price_signal.symbol) % 100 == 0:
+            self.logger.debug(
+                f"{price_signal.symbol}: No signal - score {total_score:.3f} "
+                f"(P:{price_score:.2f} M:{momentum_score:.2f} V:{volume_score:.2f} "
+                f"SR:{sr_score:.2f} L:{learning_score:.2f})"
+            )
 
         return direction, confidence, rationale_parts
 

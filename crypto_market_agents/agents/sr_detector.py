@@ -93,6 +93,9 @@ class SRDetectionAgent(BaseAgent):
                 self.symbols = await self.exchange.get_trading_symbols()
                 self.logger.info(f"Loaded {len(self.symbols)} symbols from exchange")
 
+            total_levels = 0
+            total_zones = 0
+
             for symbol in self.symbols:
                 # Get current price
                 ticker = await self.exchange.get_ticker(symbol)
@@ -118,6 +121,9 @@ class SRDetectionAgent(BaseAgent):
                 confluence_zones = self._find_confluence_zones(all_levels, current_price)
                 self.confluence_zones[symbol] = confluence_zones
 
+                total_levels += len(all_levels)
+                total_zones += len(confluence_zones)
+
                 self.logger.debug(
                     f"{symbol}: Found {len(all_levels)} S/R levels, "
                     f"{len(confluence_zones)} confluence zones"
@@ -126,8 +132,14 @@ class SRDetectionAgent(BaseAgent):
                 # Small delay to avoid overwhelming the API
                 await asyncio.sleep(0.1)
 
+            # Summary logging
+            self.logger.info(
+                f"S/R Detection complete: {total_levels} levels across {len(self.symbols)} symbols, "
+                f"{total_zones} confluence zones identified"
+            )
+
         except Exception as e:
-            self.logger.error(f"Error in S/R detection: {e}")
+            self.logger.error(f"Error in S/R detection: {e}", exc_info=True)
 
     async def _detect_levels_for_timeframe(
         self,

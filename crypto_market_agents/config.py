@@ -59,7 +59,7 @@ class SignalSynthesisConfig:
     enabled: bool = True
     reward_risk_ratio: float = 2.0
     max_stop_loss_pct: float = 2.0
-    min_confidence: float = 0.6
+    min_confidence: float = 0.35  # Temporarily reduced from 0.6 for testing
     update_interval: int = 300  # seconds (5 minutes)
 
 
