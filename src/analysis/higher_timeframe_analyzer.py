@@ -360,9 +360,10 @@ class HigherTimeframeAnalyzer:
 
         Returns: (allow_longs, allow_shorts)
         """
-        # Don't trade in choppy markets
+        # Allow trading in choppy markets (rely on signal confluence for filtering)
+        # Choppy markets can still have valid RSI divergences and S/R bounces
         if regime == 'choppy':
-            return False, False
+            return True, True  # Allow both, but signals need strong confluence
 
         # Strong bias - only trade with the bias
         if bias_strength >= 60:
