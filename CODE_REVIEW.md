@@ -2,6 +2,9 @@
 **Reviewer:** Senior Quantitative Trading Engineer (10+ years)
 **Date:** 2026-02-04
 **Severity Levels:** 🔴 Critical | 🟠 High | 🟡 Medium | 🟢 Low
+**User Platform:** macOS (Mac) - animeshchattri@Animeshs-MacBook-Pro
+
+**Note:** See `MAC_SETUP_GUIDE.md` for Mac-specific setup instructions.
 
 ---
 

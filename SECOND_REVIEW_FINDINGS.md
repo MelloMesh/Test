@@ -1,6 +1,9 @@
 # Second Quality Review - Critical Findings
 **Date:** 2026-02-04
 **Reviewer:** Senior Engineer (Second Pass)
+**User Platform:** macOS (Mac) - animeshchattri@Animeshs-MacBook-Pro
+
+**Note:** Mac-specific setup instructions available in `MAC_SETUP_GUIDE.md`
 
 ## 🚨 NEW CRITICAL ISSUES FOUND
 
