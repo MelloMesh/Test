@@ -347,9 +347,12 @@ async def main():
 
     pairs = established_pairs
 
-    # Backtest period - last 3 years
+    # Backtest period - from July 2024 to present (resume from where previous run stopped)
     end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=365 * 3)
+    start_date = datetime(2024, 7, 1, tzinfo=timezone.utc)
+
+    logger.info(f"⚡ Fast-forward mode: Starting from July 2024 (skipping already-processed period)")
+    logger.info(f"")
 
     # Create and run backtest
     backtest = SimpleBacktest(
