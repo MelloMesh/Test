@@ -495,19 +495,83 @@ class PaperTradingEngine:
         # Save results
         self.save_results()
 
+    async def _generate_signal_analysis(self, trade: PaperTrade, htf_context: HTFContext) -> str:
+        """Generate AI analysis for a trade signal"""
+        try:
+            # Build context for analysis
+            analysis_parts = []
+
+            # Analyze trade type
+            if "TREND_CONTINUATION" in trade.trade_type:
+                analysis_parts.append(f"Trend continuation setup on {htf_context.primary_bias} HTF bias.")
+            elif "MEAN_REVERSION" in trade.trade_type:
+                analysis_parts.append(f"Mean reversion play from {htf_context.regime} market conditions.")
+
+            # Analyze confluence
+            if trade.confluence_score >= 8:
+                analysis_parts.append("Exceptional confluence with multiple confirmations.")
+            elif trade.confluence_score >= 7:
+                analysis_parts.append("Strong confluence - high-probability setup.")
+            elif trade.confluence_score >= 5:
+                analysis_parts.append("Decent confluence - standard setup.")
+            else:
+                analysis_parts.append("Lower confluence - reduced position sizing.")
+
+            # Analyze HTF alignment
+            if htf_context.alignment_score >= 80:
+                analysis_parts.append(f"Perfect HTF alignment ({htf_context.alignment_score:.0f}%) - all timeframes agree.")
+            elif htf_context.alignment_score >= 60:
+                analysis_parts.append(f"Good HTF alignment ({htf_context.alignment_score:.0f}%) - majority of timeframes aligned.")
+            else:
+                analysis_parts.append(f"Mixed HTF signals ({htf_context.alignment_score:.0f}%) - proceed with caution.")
+
+            # Add trade rationale based on direction and HTF
+            if trade.direction == 'long':
+                if htf_context.primary_bias == 'bullish':
+                    analysis_parts.append("Long entry with HTF support - trading with institutional flow.")
+                else:
+                    analysis_parts.append("Counter-trend long - looking for short-term bounce.")
+            else:
+                if htf_context.primary_bias == 'bearish':
+                    analysis_parts.append("Short entry with HTF support - trading with institutional flow.")
+                else:
+                    analysis_parts.append("Counter-trend short - looking for short-term pullback.")
+
+            return " ".join(analysis_parts)
+        except Exception as e:
+            logger.error(f"Error generating signal analysis: {e}")
+            return "Setup meets entry criteria with acceptable risk/reward profile."
+
     async def _send_trade_opened_notification(self, trade: PaperTrade, htf_context: HTFContext):
         """Send Telegram notification for opened trade"""
         try:
             emoji = "🟢" if trade.direction == 'long' else "🔴"
             order_emoji = "🚀" if trade.order_type == 'MARKET' else "📋"
 
+            # Calculate percentages for entry, SL, and TP
+            entry_price_for_calc = trade.limit_price if trade.order_type == 'LIMIT' else trade.entry_price
+
+            # Calculate SL percentage
+            if trade.direction == 'long':
+                sl_pct = ((trade.stop_loss - entry_price_for_calc) / entry_price_for_calc) * 100
+                tp_pct = ((trade.take_profit - entry_price_for_calc) / entry_price_for_calc) * 100
+            else:
+                sl_pct = ((entry_price_for_calc - trade.stop_loss) / entry_price_for_calc) * 100
+                tp_pct = ((entry_price_for_calc - trade.take_profit) / entry_price_for_calc) * 100
+
+            # Calculate R:R ratio
+            risk = abs(sl_pct)
+            reward = abs(tp_pct)
+            rr_ratio = reward / risk if risk > 0 else 0
+
             # Build entry info based on order type
             if trade.order_type == 'MARKET':
-                entry_info = f"Entry: ${trade.entry_price:,.4f}"
-                title = f"Paper Trade Opened: {trade.symbol}"
+                entry_display = f"${entry_price_for_calc:,.4f}"
+                title = f"🎯 Signal: {trade.symbol} {trade.direction.upper()}"
             else:
-                entry_info = f"Current: ${trade.entry_price:,.4f}\n   Limit Price: ${trade.limit_price:,.4f}"
-                title = f"Limit Order Placed: {trade.symbol}"
+                current_vs_limit_pct = ((trade.limit_price - trade.entry_price) / trade.entry_price) * 100
+                entry_display = f"${trade.limit_price:,.4f} (Limit at {current_vs_limit_pct:+.2f}% from current)"
+                title = f"📋 Limit Signal: {trade.symbol} {trade.direction.upper()}"
 
             # Confluence bar
             score = trade.confluence_score
@@ -515,30 +579,43 @@ class PaperTradingEngine:
             empty_bars = "░" * (10 - score)
             confluence_bar = filled_bars + empty_bars
 
+            # Generate AI analysis
+            ai_analysis = await self._generate_signal_analysis(trade, htf_context)
+
             message = f"""
-{emoji} **PAPER {trade.order_type} ORDER** {order_emoji}
+{emoji} **{trade.order_type} {trade.direction.upper()} SIGNAL** {order_emoji}
 
-💰 **TRADE:**
-   Symbol: {trade.symbol}
-   Direction: **{trade.direction.upper()}**
-   {entry_info}
-   Trade Type: {trade.trade_type}
+📊 **SETUP: {trade.symbol}**
+   Type: {trade.trade_type}
+   Confluence: {confluence_bar} {score}/10
+   HTF Bias: {htf_context.primary_bias.upper()} ({htf_context.alignment_score:.0f}%)
 
-⚡ **CONFLUENCE:**
-   {confluence_bar} {score}/10
+💡 **ANALYSIS:**
+   {ai_analysis}
 
-🛡️ **RISK MANAGEMENT:**
-   Stop Loss: ${trade.stop_loss:,.4f}
-   Take Profit: ${trade.take_profit:,.4f}
-   Position Size: ${trade.position_size:,.2f}
+📍 **ENTRY:**
+   Price: {entry_display}
 
-📊 **HTF CONTEXT:**
-   Bias: {htf_context.primary_bias.upper()}
-   Alignment: {htf_context.alignment_score:.0f}%
-   Regime: {htf_context.regime.upper()}
+🛡️ **STOP LOSS:**
+   Price: ${trade.stop_loss:,.4f}
+   Risk: {sl_pct:.2f}%
+
+🎯 **TAKE PROFIT:**
+   Price: ${trade.take_profit:,.4f}
+   Target: {tp_pct:+.2f}%
+
+⚖️ **RISK/REWARD:**
+   Risk: {risk:.2f}%
+   Reward: {reward:.2f}%
+   R:R Ratio: 1:{rr_ratio:.2f}
+
+💰 **POSITION:**
+   Size: ${trade.position_size:,.2f}
+   Max Risk: ${trade.position_size * (risk/100):,.2f}
+   Potential Profit: ${trade.position_size * (reward/100):,.2f}
 
 💼 **ACCOUNT:**
-   Current Capital: ${self.current_capital:,.2f}
+   Capital: ${self.current_capital:,.2f}
 """
 
             await self.telegram_bot.send_alert(
@@ -557,25 +634,48 @@ class PaperTradingEngine:
             # Calculate time pending
             time_pending = (datetime.now(timezone.utc) - trade.entry_time).total_seconds() / 60
 
+            # Calculate percentages for SL and TP
+            if trade.direction == 'long':
+                sl_pct = ((trade.stop_loss - trade.entry_price) / trade.entry_price) * 100
+                tp_pct = ((trade.take_profit - trade.entry_price) / trade.entry_price) * 100
+            else:
+                sl_pct = ((trade.entry_price - trade.stop_loss) / trade.entry_price) * 100
+                tp_pct = ((trade.entry_price - trade.take_profit) / trade.entry_price) * 100
+
+            # Calculate R:R ratio
+            risk = abs(sl_pct)
+            reward = abs(tp_pct)
+            rr_ratio = reward / risk if risk > 0 else 0
+
             message = f"""
-✅ **LIMIT ORDER FILLED** ✅
+✅ **LIMIT FILLED - NOW IN TRADE** ✅
 
-💰 **TRADE:**
-   Symbol: {trade.symbol}
-   Direction: **{trade.direction.upper()}**
-   Entry: ${trade.entry_price:,.4f}
-   Trade Type: {trade.trade_type}
+{emoji} **{trade.symbol} {trade.direction.upper()}**
 
-⏱️ **TIMING:**
+📍 **ENTRY:**
+   Filled: ${trade.entry_price:,.4f}
    Time Pending: {time_pending:.0f} minutes
 
-🛡️ **RISK MANAGEMENT:**
-   Stop Loss: ${trade.stop_loss:,.4f}
-   Take Profit: ${trade.take_profit:,.4f}
-   Position Size: ${trade.position_size:,.2f}
+🛡️ **STOP LOSS:**
+   Price: ${trade.stop_loss:,.4f}
+   Risk: {sl_pct:.2f}%
+
+🎯 **TAKE PROFIT:**
+   Price: ${trade.take_profit:,.4f}
+   Target: {tp_pct:+.2f}%
+
+⚖️ **RISK/REWARD:**
+   Risk: {risk:.2f}%
+   Reward: {reward:.2f}%
+   R:R Ratio: 1:{rr_ratio:.2f}
+
+💰 **POSITION:**
+   Size: ${trade.position_size:,.2f}
+   Max Risk: ${trade.position_size * (risk/100):,.2f}
+   Potential Profit: ${trade.position_size * (reward/100):,.2f}
 
 💼 **ACCOUNT:**
-   Current Capital: ${self.current_capital:,.2f}
+   Capital: ${self.current_capital:,.2f}
    Open Trades: {len(self.open_trades)}
 """
 
@@ -592,40 +692,63 @@ class PaperTradingEngine:
         try:
             emoji = "🟢" if trade.direction == 'long' else "🔴"
 
-            # Calculate price difference
+            # Calculate price difference (slippage)
             if trade.direction == 'long':
-                price_diff_pct = ((market_price - old_limit_price) / old_limit_price) * 100
+                slippage_pct = ((market_price - old_limit_price) / old_limit_price) * 100
             else:
-                price_diff_pct = ((old_limit_price - market_price) / old_limit_price) * 100
+                slippage_pct = ((old_limit_price - market_price) / old_limit_price) * 100
 
             # Calculate time pending
             time_pending = (datetime.now(timezone.utc) - trade.entry_time).total_seconds() / 60
 
+            # Calculate percentages for SL and TP
+            if trade.direction == 'long':
+                sl_pct = ((trade.stop_loss - trade.entry_price) / trade.entry_price) * 100
+                tp_pct = ((trade.take_profit - trade.entry_price) / trade.entry_price) * 100
+            else:
+                sl_pct = ((trade.entry_price - trade.stop_loss) / trade.entry_price) * 100
+                tp_pct = ((trade.entry_price - trade.take_profit) / trade.entry_price) * 100
+
+            # Calculate R:R ratio
+            risk = abs(sl_pct)
+            reward = abs(tp_pct)
+            rr_ratio = reward / risk if risk > 0 else 0
+
             message = f"""
-🚀 **LIMIT OVERRIDDEN TO MARKET** 🚀
+🚀 **LIMIT OVERRIDDEN - ENTERED AT MARKET** 🚀
 
-💰 **TRADE:**
-   Symbol: {trade.symbol}
-   Direction: **{trade.direction.upper()}**
-   Original Limit: ${old_limit_price:,.4f}
-   Market Entry: ${market_price:,.4f}
-   Slippage: {price_diff_pct:+.2f}%
-   Trade Type: {trade.trade_type}
+{emoji} **{trade.symbol} {trade.direction.upper()}**
 
-⚡ **REASON:**
-   Confluence improved or price drifting away
+⚡ **OVERRIDE REASON:**
+   Confluence improved or price moving away
    Better to enter now than miss the move
 
-⏱️ **TIMING:**
+📍 **ENTRY:**
+   Original Limit: ${old_limit_price:,.4f}
+   Market Entry: ${market_price:,.4f}
+   Slippage: {slippage_pct:+.2f}%
    Time Pending: {time_pending:.0f} minutes
 
-🛡️ **RISK MANAGEMENT:**
-   Stop Loss: ${trade.stop_loss:,.4f}
-   Take Profit: ${trade.take_profit:,.4f}
-   Position Size: ${trade.position_size:,.2f}
+🛡️ **STOP LOSS:**
+   Price: ${trade.stop_loss:,.4f}
+   Risk: {sl_pct:.2f}%
+
+🎯 **TAKE PROFIT:**
+   Price: ${trade.take_profit:,.4f}
+   Target: {tp_pct:+.2f}%
+
+⚖️ **RISK/REWARD:**
+   Risk: {risk:.2f}%
+   Reward: {reward:.2f}%
+   R:R Ratio: 1:{rr_ratio:.2f}
+
+💰 **POSITION:**
+   Size: ${trade.position_size:,.2f}
+   Max Risk: ${trade.position_size * (risk/100):,.2f}
+   Potential Profit: ${trade.position_size * (reward/100):,.2f}
 
 💼 **ACCOUNT:**
-   Current Capital: ${self.current_capital:,.2f}
+   Capital: ${self.current_capital:,.2f}
    Open Trades: {len(self.open_trades)}
 """
 
