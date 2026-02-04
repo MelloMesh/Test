@@ -252,6 +252,63 @@ class HTFLiveScannerBybit:
         logger.info(f"HTF blocked: {self.htf_blocked_count}")
         logger.info(f"{'='*80}\n")
 
+    def _check_multi_tf_alignment(self, symbol: str, htf_context: HTFContext, primary_direction: str) -> bool:
+        """
+        Check if signal aligns across multiple timeframes (15m, 30m, 1h)
+        Requires 2 out of 3 timeframes to agree for confirmation
+
+        Args:
+            symbol: Trading symbol
+            htf_context: HTF context
+            primary_direction: 'long' or 'short' from primary timeframe
+
+        Returns:
+            True if multi-TF alignment confirmed
+        """
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=3)
+
+            tf_directions = {}
+
+            # Check 15m, 1h (we already have 30m)
+            for tf in ['15m', '1h']:
+                try:
+                    tf_data = self.exchange.fetch_historical_data(symbol, tf, start_date, end_date)
+
+                    if tf_data.empty or len(tf_data) < 50:
+                        continue
+
+                    tf_data = self._add_indicators(tf_data)
+                    latest = tf_data.iloc[-1]
+
+                    # Simple trend check using SMA crossover
+                    if 'SMA_20' in latest and 'SMA_50' in latest:
+                        sma_20 = latest['SMA_20']
+                        sma_50 = latest['SMA_50']
+                        price = latest['close']
+
+                        # Bullish if price > SMA20 > SMA50
+                        if price > sma_20 and sma_20 > sma_50:
+                            tf_directions[tf] = 'long'
+                        # Bearish if price < SMA20 < SMA50
+                        elif price < sma_20 and sma_20 < sma_50:
+                            tf_directions[tf] = 'short'
+
+                except Exception as e:
+                    logger.debug(f"Error checking {tf} for {symbol}: {e}")
+                    continue
+
+            # Count how many timeframes agree with primary direction
+            agreement_count = sum(1 for d in tf_directions.values() if d == primary_direction)
+
+            # Require at least 1 other timeframe to agree (2 out of 3 total including primary)
+            return agreement_count >= 1
+
+        except Exception as e:
+            logger.debug(f"Error in multi-TF check for {symbol}: {e}")
+            return False
+
     async def _check_ltf_entry(self, symbol: str, htf_context: HTFContext) -> Optional[Dict]:
         """
         Check for LTF entry signal with confluence scoring
@@ -303,6 +360,14 @@ class HTFLiveScannerBybit:
                 if not should_alert:
                     continue  # Skip duplicate
 
+                # MULTI-TIMEFRAME CONFLUENCE: Check if signal aligns across 15m/30m/1h
+                multi_tf_aligned = self._check_multi_tf_alignment(
+                    symbol, htf_context, signal['direction']
+                )
+
+                # Update signal with multi-TF result
+                signal['multi_tf'] = multi_tf_aligned
+
                 # Evaluate confluence
                 confluence = self.confluence_scorer.evaluate_signal(
                     symbol=symbol,
@@ -312,7 +377,7 @@ class HTFLiveScannerBybit:
                     htf_context=htf_context,
                     has_divergence=signal.get('has_divergence', False),
                     has_volume_confirmation=signal.get('has_volume', False),
-                    multi_tf_confirmation=signal.get('multi_tf', False),
+                    multi_tf_confirmation=multi_tf_aligned,
                     rsi_value=rsi
                 )
 
@@ -392,6 +457,16 @@ class HTFLiveScannerBybit:
         at_support = self._is_near_support(current_price, support_levels)
         at_resistance = self._is_near_resistance(current_price, resistance_levels)
 
+        # INSTITUTIONAL CONCEPTS: Find Order Blocks and Fair Value Gaps
+        order_blocks = self._find_order_blocks(data)
+        fvgs = self._find_fair_value_gaps(data)
+
+        # Check if at institutional zones
+        at_bullish_ob = self._is_at_order_block(current_price, order_blocks['bullish'])
+        at_bearish_ob = self._is_at_order_block(current_price, order_blocks['bearish'])
+        at_bullish_fvg = self._is_at_fvg(current_price, fvgs['bullish'])
+        at_bearish_fvg = self._is_at_fvg(current_price, fvgs['bearish'])
+
         # Check for trend-following pullback
         if htf_context.allow_longs and self._is_bullish_pullback(data):
             signals.append({
@@ -415,31 +490,86 @@ class HTFLiveScannerBybit:
                 'multi_tf': False
             })
 
-        # Check for mean reversion - CRITICAL FIX: Only signal if at correct level
+        # INSTITUTIONAL SETUPS: Order Block bounces
         rsi = latest['RSI_14'] if 'RSI_14' in latest else None
+        has_volume = self._check_volume_spike(data)
 
+        # Bullish Order Block bounce - institutions accumulating
+        if htf_context.allow_longs and at_bullish_ob:
+            if rsi and rsi < 50:  # Not overbought
+                signals.append({
+                    'direction': 'long',
+                    'signal_name': 'Bullish_Order_Block_Bounce',
+                    'timeframe': '30m',
+                    'reason': f'Price at bullish order block (institutional buy zone) - RSI {rsi:.0f}',
+                    'has_divergence': self._check_bullish_divergence(data),
+                    'has_volume': has_volume,
+                    'multi_tf': False
+                })
+
+        # Bearish Order Block rejection - institutions distributing
+        if htf_context.allow_shorts and at_bearish_ob:
+            if rsi and rsi > 50:  # Not oversold
+                signals.append({
+                    'direction': 'short',
+                    'signal_name': 'Bearish_Order_Block_Rejection',
+                    'timeframe': '30m',
+                    'reason': f'Price at bearish order block (institutional sell zone) - RSI {rsi:.0f}',
+                    'has_divergence': self._check_bearish_divergence(data),
+                    'has_volume': has_volume,
+                    'multi_tf': False
+                })
+
+        # INSTITUTIONAL SETUPS: Fair Value Gap fills
+        # Bullish FVG fill - price returning to fill imbalance
+        if htf_context.allow_longs and at_bullish_fvg:
+            if rsi and rsi < 55:  # Not too overbought
+                signals.append({
+                    'direction': 'long',
+                    'signal_name': 'Bullish_FVG_Fill',
+                    'timeframe': '30m',
+                    'reason': f'Price filling into bullish FVG (imbalance) - RSI {rsi:.0f}',
+                    'has_divergence': self._check_bullish_divergence(data),
+                    'has_volume': has_volume,
+                    'multi_tf': False
+                })
+
+        # Bearish FVG fill - price returning to fill imbalance
+        if htf_context.allow_shorts and at_bearish_fvg:
+            if rsi and rsi > 45:  # Not too oversold
+                signals.append({
+                    'direction': 'short',
+                    'signal_name': 'Bearish_FVG_Fill',
+                    'timeframe': '30m',
+                    'reason': f'Price filling into bearish FVG (imbalance) - RSI {rsi:.0f}',
+                    'has_divergence': self._check_bearish_divergence(data),
+                    'has_volume': has_volume,
+                    'multi_tf': False
+                })
+
+        # TRADITIONAL SETUPS: RSI + Support/Resistance (Keep existing for reversals)
         if rsi is not None:
-            # Oversold bounce - ONLY if price is at support
-            if rsi < 30 and htf_context.allow_longs and at_support:
+            # Oversold bounce - ONLY if price is at support AND not at bearish institutional zone
+            if rsi < 30 and htf_context.allow_longs and at_support and not at_bearish_ob:
                 signals.append({
                     'direction': 'long',
                     'signal_name': 'RSI_Oversold_Bounce',
                     'timeframe': '30m',
                     'reason': f'RSI oversold ({rsi:.0f}) AT SUPPORT - bounce setup',
                     'has_divergence': self._check_bullish_divergence(data),
-                    'has_volume': self._check_volume_spike(data),
+                    'has_volume': has_volume,
                     'multi_tf': False
                 })
 
-            # Overbought fade - ONLY if price is at resistance
-            if rsi > 70 and htf_context.allow_shorts and at_resistance:
+            # Overbought fade - ONLY if price is at resistance AND not at bullish institutional zone
+            if rsi > 70 and htf_context.allow_shorts and at_resistance and not at_bullish_ob:
                 signals.append({
                     'direction': 'short',
                     'signal_name': 'RSI_Overbought_Fade',
                     'timeframe': '30m',
                     'reason': f'RSI overbought ({rsi:.0f}) AT RESISTANCE - rejection setup',
                     'has_divergence': self._check_bearish_divergence(data),
-                    'has_volume': self._check_volume_spike(data),
+                    'has_volume': has_volume,
                     'multi_tf': False
                 })
 
@@ -556,6 +686,127 @@ class HTFLiveScannerBybit:
         for resistance in resistance_levels:
             distance = abs(price - resistance) / resistance
             if distance <= tolerance_pct:  # Within 1.5% of resistance
+                return True
+        return False
+
+    def _find_order_blocks(self, data: pd.DataFrame, lookback: int = 50) -> Dict[str, List[Dict]]:
+        """
+        Detect institutional order blocks
+        Bullish OB = Last bearish candle before bullish move (institutions accumulating)
+        Bearish OB = Last bullish candle before bearish move (institutions distributing)
+        """
+        if len(data) < lookback + 5:
+            return {'bullish': [], 'bearish': []}
+
+        recent_data = data.iloc[-lookback:]
+        bullish_obs = []
+        bearish_obs = []
+
+        for i in range(2, len(recent_data) - 3):
+            current = recent_data.iloc[i]
+
+            # Check if bearish candle (close < open)
+            is_bearish_candle = current['close'] < current['open']
+            # Check if bullish candle (close > open)
+            is_bullish_candle = current['close'] > current['open']
+
+            # Bullish Order Block: Last down candle before 3+ up candles
+            if is_bearish_candle:
+                # Check if next 3 candles are bullish
+                next_3_bullish = all(
+                    recent_data.iloc[i + j]['close'] > recent_data.iloc[i + j]['open']
+                    for j in range(1, 4) if i + j < len(recent_data)
+                )
+
+                if next_3_bullish:
+                    bullish_obs.append({
+                        'price_low': float(current['low']),
+                        'price_high': float(current['high']),
+                        'formed_at': current.name,
+                        'strength': abs(current['close'] - current['open']) / current['open']
+                    })
+
+            # Bearish Order Block: Last up candle before 3+ down candles
+            if is_bullish_candle:
+                # Check if next 3 candles are bearish
+                next_3_bearish = all(
+                    recent_data.iloc[i + j]['close'] < recent_data.iloc[i + j]['open']
+                    for j in range(1, 4) if i + j < len(recent_data)
+                )
+
+                if next_3_bearish:
+                    bearish_obs.append({
+                        'price_low': float(current['low']),
+                        'price_high': float(current['high']),
+                        'formed_at': current.name,
+                        'strength': abs(current['close'] - current['open']) / current['open']
+                    })
+
+        return {'bullish': bullish_obs[-5:], 'bearish': bearish_obs[-5:]}  # Keep last 5 of each
+
+    def _find_fair_value_gaps(self, data: pd.DataFrame, lookback: int = 50) -> Dict[str, List[Dict]]:
+        """
+        Detect Fair Value Gaps (FVGs) - imbalances where no trading occurred
+        Bullish FVG: Gap between candle 1 high and candle 3 low (price magnetically returns)
+        Bearish FVG: Gap between candle 1 low and candle 3 high
+        """
+        if len(data) < lookback:
+            return {'bullish': [], 'bearish': []}
+
+        recent_data = data.iloc[-lookback:]
+        bullish_fvgs = []
+        bearish_fvgs = []
+
+        for i in range(2, len(recent_data)):
+            candle_1 = recent_data.iloc[i - 2]
+            candle_2 = recent_data.iloc[i - 1]
+            candle_3 = recent_data.iloc[i]
+
+            # Bullish FVG: Candle 1 high < Candle 3 low (gap up)
+            if candle_1['high'] < candle_3['low']:
+                gap_size = candle_3['low'] - candle_1['high']
+                gap_size_pct = gap_size / candle_1['high']
+
+                # Only count significant gaps (> 0.1%)
+                if gap_size_pct > 0.001:
+                    bullish_fvgs.append({
+                        'gap_low': float(candle_1['high']),
+                        'gap_high': float(candle_3['low']),
+                        'gap_mid': float((candle_1['high'] + candle_3['low']) / 2),
+                        'gap_size_pct': float(gap_size_pct * 100),
+                        'formed_at': candle_3.name
+                    })
+
+            # Bearish FVG: Candle 1 low > Candle 3 high (gap down)
+            if candle_1['low'] > candle_3['high']:
+                gap_size = candle_1['low'] - candle_3['high']
+                gap_size_pct = gap_size / candle_1['low']
+
+                # Only count significant gaps (> 0.1%)
+                if gap_size_pct > 0.001:
+                    bearish_fvgs.append({
+                        'gap_low': float(candle_3['high']),
+                        'gap_high': float(candle_1['low']),
+                        'gap_mid': float((candle_3['high'] + candle_1['low']) / 2),
+                        'gap_size_pct': float(gap_size_pct * 100),
+                        'formed_at': candle_3.name
+                    })
+
+        return {'bullish': bullish_fvgs[-5:], 'bearish': bearish_fvgs[-5:]}  # Keep last 5 of each
+
+    def _is_at_order_block(self, price: float, order_blocks: List[Dict], tolerance_pct: float = 0.02) -> bool:
+        """Check if price is within an order block zone"""
+        for ob in order_blocks:
+            # Check if price is within the order block range
+            if ob['price_low'] * (1 - tolerance_pct) <= price <= ob['price_high'] * (1 + tolerance_pct):
+                return True
+        return False
+
+    def _is_at_fvg(self, price: float, fvgs: List[Dict], tolerance_pct: float = 0.015) -> bool:
+        """Check if price is filling into a fair value gap"""
+        for fvg in fvgs:
+            # Check if price is within the gap range
+            if fvg['gap_low'] * (1 - tolerance_pct) <= price <= fvg['gap_high'] * (1 + tolerance_pct):
                 return True
         return False
 

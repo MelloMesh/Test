@@ -26,11 +26,13 @@ class ConfluenceScorer:
     """
     Scores trading signals based on multiple confluences
 
-    Scoring Factors (max 10 points):
+    Scoring Factors (max 12 points):
     - HTF Alignment (0-2 pts): How aligned are weekly/daily/4h?
     - Price at S/R (0-3 pts): Are we at a key level?
     - LTF Technical (0-2 pts): Quality of LTF signal (divergence, etc.)
     - Volume (0-2 pts): Volume confirmation
+    - Order Blocks (0-2 pts): At institutional accumulation/distribution zone
+    - Fair Value Gaps (0-2 pts): Price filling imbalance
     - Multiple Timeframe Confirmation (0-1 pt): Signal on multiple TFs
 
     Decision:
@@ -118,9 +120,19 @@ class ConfluenceScorer:
         if has_volume_confirmation:
             score += 2
             reasons.append("Volume confirmation")
-        # Could add more granular volume scoring here
 
-        # === 5. MULTI-TIMEFRAME CONFIRMATION (0-1 point) ===
+        # === 5. INSTITUTIONAL CONCEPTS (0-4 points total) ===
+        # Order Blocks (0-2 points) - Institutional zones
+        if "Order_Block" in signal_name:
+            score += 2
+            reasons.append("At institutional order block zone")
+
+        # Fair Value Gaps (0-2 points) - Imbalance fills
+        if "FVG" in signal_name:
+            score += 2
+            reasons.append("Filling fair value gap (imbalance)")
+
+        # === 6. MULTI-TIMEFRAME CONFIRMATION (0-1 point) ===
         if multi_tf_confirmation:
             score += 1
             reasons.append("Multi-TF confirmation")
