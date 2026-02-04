@@ -149,6 +149,85 @@ class PaperTradingEngine:
         except Exception as e:
             logger.error(f"Error saving results: {e}")
 
+    async def scan_for_signals(self):
+        """Scan market for new trading signals and open positions"""
+        try:
+            # Get top pairs by volume
+            pairs = self.exchange.get_top_volume_pairs(top_n=25)
+
+            if not pairs:
+                logger.warning("No pairs fetched for scanning")
+                return
+
+            signals_found = 0
+
+            # Scan each pair
+            for symbol in pairs:
+                # Skip if we already have a position
+                if symbol in self.open_trades or symbol in self.pending_limits:
+                    continue
+
+                try:
+                    # Fetch HTF context
+                    htf_context = self.htf_analyzer.get_htf_context_for_pair(symbol)
+
+                    if not htf_context:
+                        continue
+
+                    # Get current price
+                    df = self.exchange.fetch_current_data(symbol, '30m', limit=200)
+                    if df.empty:
+                        continue
+
+                    current_price = float(df.iloc[-1]['close'])
+
+                    # Get signals for this pair
+                    signals = get_htf_aware_signals(
+                        symbol=symbol,
+                        df=df,
+                        htf_context=htf_context,
+                        config=config
+                    )
+
+                    # Filter for high-confluence signals
+                    for signal in signals:
+                        confluence = self.confluence_scorer.calculate_score(
+                            signal_name=signal['signal_name'],
+                            htf_context=htf_context,
+                            has_volume_confirmation=signal.get('volume_confirm', False),
+                            has_divergence=signal.get('divergence', False)
+                        )
+
+                        # Only take signals with confluence >= 7
+                        if confluence >= 7:
+                            signals_found += 1
+
+                            # Open trade
+                            self.open_trade(
+                                symbol=symbol,
+                                signal_name=signal['signal_name'],
+                                direction=signal['direction'],
+                                entry_price=current_price,
+                                htf_context=htf_context,
+                                order_type='MARKET',
+                                trade_type=signal.get('trade_type', ''),
+                                confluence_score=confluence
+                            )
+
+                            logger.info(f"✅ Opened {signal['direction']} position on {symbol} (confluence: {confluence}/12)")
+                            break  # Only one signal per pair
+
+                except Exception as e:
+                    logger.debug(f"Error scanning {symbol}: {e}")
+
+            if signals_found == 0:
+                logger.info("No high-quality signals found this scan")
+            else:
+                logger.info(f"✅ Opened {signals_found} new position(s)")
+
+        except Exception as e:
+            logger.error(f"Error in scan_for_signals: {e}")
+
     def open_trade(
         self,
         symbol: str,
@@ -925,8 +1004,17 @@ async def main():
     print("\n⏳ Checking open trades every 60 seconds...\n")
 
     # Main loop
+    scan_counter = 0
     while True:
         try:
+            # Scan for new signals every 30 minutes (30 iterations of 60 seconds)
+            if scan_counter % 30 == 0:
+                logger.info("🔍 Scanning for new trading signals...")
+                await engine.scan_for_signals()
+                scan_counter = 0
+
+            scan_counter += 1
+
             # Check pending limits (fills & overrides)
             engine.check_pending_limits()
 
