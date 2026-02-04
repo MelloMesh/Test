@@ -27,6 +27,7 @@ class SimpleBacktest:
     """
     Simplified backtest using scanner logic
     Tests current strategy on historical data
+    Now supports pause/resume with checkpoints
     """
 
     def __init__(self, pairs: list, start_date: datetime, end_date: datetime):
@@ -48,8 +49,55 @@ class SimpleBacktest:
         self.total_signals = 0
         self.signals_by_type = {}
 
+        # Checkpoint
+        self.checkpoint_file = Path("backtest_checkpoint.json")
+        self.last_processed_date = None
+
+    def _load_checkpoint(self):
+        """Load checkpoint if exists"""
+        if not self.checkpoint_file.exists():
+            return False
+
+        try:
+            with open(self.checkpoint_file, 'r') as f:
+                checkpoint = json.load(f)
+
+            # Restore state
+            self.last_processed_date = datetime.fromisoformat(checkpoint['last_date'])
+            self.trades = checkpoint['trades']
+            self.total_signals = checkpoint['total_signals']
+            self.signals_by_type = checkpoint['signals_by_type']
+
+            logger.info(f"✓ Loaded checkpoint from {self.last_processed_date.date()}")
+            logger.info(f"  Signals so far: {self.total_signals}")
+            logger.info(f"  Trades so far: {len(self.trades)}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Failed to load checkpoint: {e}")
+            return False
+
+    def _save_checkpoint(self, current_date: datetime):
+        """Save checkpoint"""
+        try:
+            checkpoint = {
+                'last_date': current_date.isoformat(),
+                'trades': self.trades,
+                'total_signals': self.total_signals,
+                'signals_by_type': self.signals_by_type,
+                'pairs': self.pairs,
+                'start_date': self.start_date.isoformat(),
+                'end_date': self.end_date.isoformat()
+            }
+
+            with open(self.checkpoint_file, 'w') as f:
+                json.dump(checkpoint, f, indent=2)
+
+        except Exception as e:
+            logger.warning(f"Failed to save checkpoint: {e}")
+
     async def run(self):
-        """Run backtest"""
+        """Run backtest with checkpoint support"""
         logger.info(f"\n{'='*80}")
         logger.info(f"🚀 STARTING SIMPLIFIED BACKTEST")
         logger.info(f"{'='*80}")
@@ -58,31 +106,58 @@ class SimpleBacktest:
         logger.info(f"Capital: ${self.initial_capital:,.0f}")
         logger.info(f"{'='*80}\n")
 
+        # Try to load checkpoint
+        checkpoint_loaded = self._load_checkpoint()
+
+        # Determine start date
+        if checkpoint_loaded and self.last_processed_date:
+            current_date = self.last_processed_date + timedelta(days=1)
+            logger.info(f"📍 Resuming from {current_date.date()}\n")
+        else:
+            current_date = self.start_date
+            logger.info(f"📍 Starting fresh from {current_date.date()}\n")
+
         # For simplicity, just scan each pair once per day
         # In production, would scan every 30m
-        current_date = self.start_date
-        days_processed = 0
         total_days = (self.end_date - self.start_date).days
+        days_processed = (current_date - self.start_date).days
 
-        while current_date <= self.end_date:
-            days_processed += 1
+        try:
+            while current_date <= self.end_date:
+                days_processed += 1
 
-            # Progress update every 30 days
-            if days_processed % 30 == 0:
-                progress_pct = (days_processed / total_days) * 100
-                logger.info(f"📅 Progress: {progress_pct:.0f}% | Date: {current_date.date()} | Signals: {self.total_signals} | Trades: {len(self.trades)}")
+                # Progress update every 30 days
+                if days_processed % 30 == 0:
+                    progress_pct = (days_processed / total_days) * 100
+                    logger.info(f"📅 Progress: {progress_pct:.0f}% | Date: {current_date.date()} | Signals: {self.total_signals} | Trades: {len(self.trades)}")
 
-            # Check each pair
-            for symbol in self.pairs:  # Use all pairs from established list
-                try:
-                    await self._check_pair(symbol, current_date)
-                except Exception as e:
-                    logger.debug(f"Error checking {symbol}: {e}")
+                    # Save checkpoint every 30 days
+                    self._save_checkpoint(current_date)
+                    logger.info(f"💾 Checkpoint saved\n")
 
-            current_date += timedelta(days=1)
+                # Check each pair
+                for symbol in self.pairs:  # Use all pairs from established list
+                    try:
+                        await self._check_pair(symbol, current_date)
+                    except Exception as e:
+                        logger.debug(f"Error checking {symbol}: {e}")
 
-        # Print results
+                current_date += timedelta(days=1)
+
+        except KeyboardInterrupt:
+            logger.info(f"\n⚠️  Backtest interrupted by user")
+            logger.info(f"💾 Saving checkpoint at {current_date.date()}...")
+            self._save_checkpoint(current_date)
+            logger.info(f"✓ Progress saved! Run again to resume from {current_date.date()}\n")
+            return
+
+        # Backtest completed - print results and clean up checkpoint
         self._print_results()
+
+        # Remove checkpoint file when complete
+        if self.checkpoint_file.exists():
+            self.checkpoint_file.unlink()
+            logger.info(f"✓ Backtest complete - checkpoint file removed")
 
     async def _check_pair(self, symbol: str, check_date: datetime):
         """Check if pair has signal on this date"""
