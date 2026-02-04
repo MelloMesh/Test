@@ -15,6 +15,8 @@ from .exchange.base import BaseExchange
 from .agents.price_action import PriceActionAgent
 from .agents.momentum import MomentumAgent
 from .agents.volume_spike import VolumeSpikeAgent
+from .agents.sr_detector import SRDetectionAgent
+from .agents.learning_agent import LearningAgent
 from .agents.signal_synthesis import SignalSynthesisAgent
 from .schemas import SystemReport, TradingSignal
 from .utils.logging import setup_logger
@@ -47,6 +49,8 @@ class AgentOrchestrator:
         self.price_action_agent: Optional[PriceActionAgent] = None
         self.momentum_agent: Optional[MomentumAgent] = None
         self.volume_spike_agent: Optional[VolumeSpikeAgent] = None
+        self.sr_agent: Optional[SRDetectionAgent] = None
+        self.learning_agent: Optional[LearningAgent] = None
         self.signal_synthesis_agent: Optional[SignalSynthesisAgent] = None
 
         # Report generation
@@ -104,6 +108,41 @@ class AgentOrchestrator:
                 )
                 self.agents.append(self.volume_spike_agent)
 
+            # Get symbols for S/R and Learning agents
+            symbols = []
+            if hasattr(self.config, 'symbols') and self.config.symbols:
+                symbols = self.config.symbols
+            elif self.config.price_action.enabled:
+                # Use symbols from price action config
+                symbols = self.config.price_action.symbols
+
+            # S/R Detection Agent
+            if hasattr(self.config, 'sr_detection') and self.config.sr_detection.enabled:
+                self.sr_agent = SRDetectionAgent(
+                    self.exchange,
+                    symbols,
+                    timeframes=self.config.sr_detection.timeframes,
+                    lookback=self.config.sr_detection.lookback,
+                    min_touches=self.config.sr_detection.min_touches,
+                    confluence_tolerance=self.config.sr_detection.confluence_tolerance,
+                    update_interval=self.config.sr_detection.update_interval
+                )
+                self.agents.append(self.sr_agent)
+                self.logger.info("S/R Detection Agent initialized")
+
+            # Learning Agent
+            if hasattr(self.config, 'learning') and self.config.learning.enabled:
+                self.learning_agent = LearningAgent(
+                    self.exchange,
+                    data_dir=self.config.learning.data_dir if hasattr(self.config.learning, 'data_dir') else "data",
+                    paper_trading=self.config.learning.paper_trading,
+                    min_trades_before_learning=self.config.learning.min_trades_before_learning,
+                    auto_optimize=self.config.learning.auto_optimize,
+                    update_interval=self.config.learning.update_interval
+                )
+                self.agents.append(self.learning_agent)
+                self.logger.info("Learning Agent initialized")
+
             # Signal synthesis agent requires other agents
             if self.config.signal_synthesis.enabled:
                 if not all([
@@ -120,7 +159,9 @@ class AgentOrchestrator:
                         self.config.signal_synthesis,
                         self.price_action_agent,
                         self.momentum_agent,
-                        self.volume_spike_agent
+                        self.volume_spike_agent,
+                        sr_agent=self.sr_agent,
+                        learning_agent=self.learning_agent
                     )
                     self.agents.append(self.signal_synthesis_agent)
 

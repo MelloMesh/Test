@@ -81,6 +81,129 @@ class VolumeSignal:
 
 
 @dataclass
+class SRLevel:
+    """Support or resistance level from a specific timeframe."""
+    price: float
+    strength: int
+    touches: int
+    timeframe: str
+    level_type: str  # 'support' or 'resistance'
+    timeframe_weight: int
+    first_seen: datetime
+    last_touch: datetime
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            **asdict(self),
+            "first_seen": self.first_seen.isoformat(),
+            "last_touch": self.last_touch.isoformat()
+        }
+
+
+@dataclass
+class SRConfluence:
+    """Confluence zone where multiple S/R levels cluster."""
+    price: float
+    confluence_score: int
+    levels: List[SRLevel]
+    distance_percent: float
+    zone_type: str  # 'support', 'resistance', or 'both'
+    strength: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "price": self.price,
+            "confluence_score": self.confluence_score,
+            "levels": [level.to_dict() for level in self.levels],
+            "distance_percent": self.distance_percent,
+            "zone_type": self.zone_type,
+            "strength": self.strength
+        }
+
+
+@dataclass
+class PaperTrade:
+    """Paper trade record for learning and strategy validation."""
+    trade_id: str
+    symbol: str
+    direction: str  # 'LONG' or 'SHORT'
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    entry_time: datetime
+    exit_time: Optional[datetime]
+    exit_price: Optional[float]
+    pnl: Optional[float]
+    pnl_percent: Optional[float]
+    outcome: str  # 'WIN', 'LOSS', 'BREAKEVEN', 'OPEN'
+
+    # Signal data that triggered the trade
+    signal_data: Dict[str, Any]
+
+    # Market context at entry
+    sr_levels: Optional[List[Dict[str, Any]]] = None
+    volume_data: Optional[Dict[str, Any]] = None
+    momentum_data: Optional[Dict[str, Any]] = None
+
+    # Learning metadata
+    notes: str = ""
+    confidence_at_entry: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = {
+            **asdict(self),
+            "entry_time": self.entry_time.isoformat()
+        }
+        if self.exit_time:
+            data["exit_time"] = self.exit_time.isoformat()
+        return data
+
+
+@dataclass
+class StrategyMetrics:
+    """Performance metrics for trading strategy."""
+    total_trades: int
+    wins: int
+    losses: int
+    breakeven: int
+    open_trades: int
+    win_rate: float
+    avg_rr: float
+    profit_factor: float
+    total_pnl_percent: float
+    avg_win_percent: float
+    avg_loss_percent: float
+    largest_win_percent: float
+    largest_loss_percent: float
+    timestamp: datetime
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            **asdict(self),
+            "timestamp": self.timestamp.isoformat()
+        }
+
+
+@dataclass
+class LearningInsights:
+    """Insights from the learning agent for signal optimization."""
+    symbol: str
+    confidence_adjustment: float  # Adjustment to add to confidence score
+    context_multiplier: float  # Multiplier for overall score
+    win_rate_at_sr: float  # Win rate when trading at S/R levels
+    win_rate_overall: float
+    recommended_action: str  # 'increase_position', 'decrease_position', 'avoid', 'normal'
+    reasoning: str
+    timestamp: datetime
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            **asdict(self),
+            "timestamp": self.timestamp.isoformat()
+        }
+
+
+@dataclass
 class TradingSignal:
     """Consolidated trading signal from Signal Synthesis Agent."""
     asset: str
@@ -96,6 +219,8 @@ class TradingSignal:
     price_signal: Optional[Dict[str, Any]] = None
     momentum_signal: Optional[Dict[str, Any]] = None
     volume_signal: Optional[Dict[str, Any]] = None
+    sr_data: Optional[Dict[str, Any]] = None
+    learning_insights: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {

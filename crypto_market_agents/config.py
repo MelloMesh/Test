@@ -64,6 +64,28 @@ class SignalSynthesisConfig:
 
 
 @dataclass
+class SRDetectionConfig:
+    """Configuration for S/R Detection Agent."""
+    enabled: bool = True
+    timeframes: List[str] = field(default_factory=lambda: ['1M', '1w', '3d', '1d', '4h', '1h'])
+    lookback: int = 100
+    min_touches: int = 2
+    confluence_tolerance: float = 0.015  # 1.5% price tolerance for clustering
+    update_interval: int = 300  # seconds (5 minutes)
+
+
+@dataclass
+class LearningConfig:
+    """Configuration for Learning Agent."""
+    enabled: bool = True
+    paper_trading: bool = True
+    data_dir: str = "data"
+    update_interval: int = 300  # seconds (5 minutes)
+    min_trades_before_learning: int = 20
+    auto_optimize: bool = True
+
+
+@dataclass
 class SystemConfig:
     """Main system configuration."""
     exchange: ExchangeConfig = field(default_factory=ExchangeConfig)
@@ -71,12 +93,15 @@ class SystemConfig:
     momentum: MomentumConfig = field(default_factory=MomentumConfig)
     volume: VolumeConfig = field(default_factory=VolumeConfig)
     signal_synthesis: SignalSynthesisConfig = field(default_factory=SignalSynthesisConfig)
+    sr_detection: SRDetectionConfig = field(default_factory=SRDetectionConfig)
+    learning: LearningConfig = field(default_factory=LearningConfig)
 
     # Global settings
     log_level: str = "INFO"
     log_file: str = "crypto_agents.log"
     output_dir: str = "output"
     data_cache_ttl: int = 60  # seconds
+    symbols: List[str] = field(default_factory=list)  # Can be set for specific symbols
 
     @classmethod
     def from_env(cls) -> "SystemConfig":

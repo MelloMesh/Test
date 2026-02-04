@@ -37,7 +37,7 @@ async def main():
 
     print("\n✅ System initialized successfully!")
     print("✅ Connected to Binance Futures API")
-    print("✅ All 4 agents started and running\n")
+    print("✅ All 6 agents started and running\n")
 
     print("-" * 80)
     print("MONITORING ACTIVE")
@@ -46,7 +46,9 @@ async def main():
     print("  • Scanning price action for breakouts")
     print("  • Computing RSI and OBV indicators")
     print("  • Detecting volume spikes")
-    print("  • Generating trading signals\n")
+    print("  • Analyzing HTF support/resistance levels (1M, 1w, 3d, 1d, 4h, 1h)")
+    print("  • Paper trading and learning from outcomes")
+    print("  • Generating optimized trading signals\n")
 
     print("Reports are saved to: output/latest_report.json")
     print("Updated every 5 minutes\n")
