@@ -15,6 +15,11 @@ from ..schemas import TradingSignal, SystemReport
 from ..utils.signal_formatter import format_signal_telegram
 
 
+# Telegram API limits
+MAX_MESSAGE_LENGTH = 4096  # Telegram's maximum message length
+RATE_LIMIT_RETRY_DELAY = 5  # Default retry delay for rate limits (seconds)
+
+
 class TelegramBot:
     """
     Telegram bot for sending trading signals and system notifications.
@@ -66,21 +71,29 @@ class TelegramBot:
         self,
         text: str,
         parse_mode: str = "Markdown",
-        disable_notification: bool = False
+        disable_notification: bool = False,
+        _retry_count: int = 0
     ) -> bool:
         """
         Send a text message to Telegram.
 
         Args:
-            text: Message text
+            text: Message text (will be truncated if > 4096 chars)
             parse_mode: Parse mode (Markdown, HTML, or None)
             disable_notification: Send silently
+            _retry_count: Internal retry counter for rate limiting
 
         Returns:
             True if message sent successfully
         """
         if not self.enabled:
             return False
+
+        # Truncate message if too long
+        if len(text) > MAX_MESSAGE_LENGTH:
+            truncate_at = MAX_MESSAGE_LENGTH - 30
+            text = text[:truncate_at] + "\n\n...(message truncated)"
+            self.logger.warning(f"Message truncated from {len(text)} to {MAX_MESSAGE_LENGTH} chars")
 
         try:
             await self._ensure_session()
@@ -97,6 +110,16 @@ class TelegramBot:
                 if response.status == 200:
                     self.logger.debug(f"Telegram message sent successfully")
                     return True
+                elif response.status == 429:
+                    # Rate limited - retry after delay
+                    retry_after = int(response.headers.get('Retry-After', RATE_LIMIT_RETRY_DELAY))
+                    if _retry_count < 3:  # Max 3 retries
+                        self.logger.warning(f"Rate limited, retrying after {retry_after}s (attempt {_retry_count + 1}/3)")
+                        await asyncio.sleep(retry_after)
+                        return await self.send_message(text, parse_mode, disable_notification, _retry_count + 1)
+                    else:
+                        self.logger.error("Rate limit retry limit exceeded")
+                        return False
                 else:
                     error_text = await response.text()
                     self.logger.error(f"Telegram API error {response.status}: {error_text}")

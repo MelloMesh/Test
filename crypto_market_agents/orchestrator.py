@@ -320,9 +320,12 @@ class AgentOrchestrator:
 
         except Exception as e:
             self.logger.error(f"Failed to generate report: {e}", exc_info=True)
-            # Send error alert to Telegram
+            # Send error alert to Telegram (best effort, don't throw)
             if self.telegram_bot and self.config.telegram.send_alerts:
-                await self.telegram_bot.send_error(str(e), "Report generation")
+                try:
+                    await self.telegram_bot.send_error(str(e), "Report generation")
+                except Exception as telegram_error:
+                    self.logger.debug(f"Could not send Telegram error notification: {telegram_error}")
 
     async def run_forever(self):
         """

@@ -11,7 +11,7 @@ def create_bar(value: float, max_value: float, length: int = 20, filled_char: st
     Create a visual progress bar.
 
     Args:
-        value: Current value
+        value: Current value (will be clamped to [0, max_value])
         max_value: Maximum value for the bar
         length: Length of the bar in characters
         filled_char: Character for filled portion
@@ -23,8 +23,11 @@ def create_bar(value: float, max_value: float, length: int = 20, filled_char: st
     if max_value <= 0:
         return empty_char * length
 
+    # Clamp value to valid range [0, max_value] to handle negative values
+    value = max(0, min(value, max_value))
+
     filled_length = int((value / max_value) * length)
-    filled_length = max(0, min(filled_length, length))  # Clamp between 0 and length
+    filled_length = max(0, min(filled_length, length))  # Extra safety clamp
 
     bar = filled_char * filled_length + empty_char * (length - filled_length)
     return bar
@@ -122,6 +125,10 @@ def format_signal_visual(signal: TradingSignal) -> str:
 
     rr_ratio = reward / risk if risk > 0 else 0
 
+    # Calculate percentages safely (avoid division by zero)
+    stop_pct = abs((signal.stop - signal.entry) / signal.entry * 100) if signal.entry != 0 else 0.0
+    target_pct = abs((signal.target - signal.entry) / signal.entry * 100) if signal.entry != 0 else 0.0
+
     # Format output
     output = f"""
 ╔══════════════════════════════════════════════════════════════╗
@@ -129,8 +136,8 @@ def format_signal_visual(signal: TradingSignal) -> str:
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
 ║  Entry:  ${signal.entry:>12,.4f}                              ║
-║  Stop:   ${signal.stop:>12,.4f}  ({abs((signal.stop - signal.entry) / signal.entry * 100):>5.2f}%)           ║
-║  Target: ${signal.target:>12,.4f}  ({abs((signal.target - signal.entry) / signal.entry * 100):>5.2f}%)           ║
+║  Stop:   ${signal.stop:>12,.4f}  ({stop_pct:>5.2f}%)           ║
+║  Target: ${signal.target:>12,.4f}  ({target_pct:>5.2f}%)           ║
 ║  R:R     {rr_ratio:>5.2f}x                                              ║
 ║                                                              ║
 ╠══════════════════════════════════════════════════════════════╣
