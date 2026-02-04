@@ -180,17 +180,27 @@ class TradeReviewAgent:
 
     async def _knowledge_acquisition_task(self):
         """Continuously learn about trading from internet resources"""
-        logger.info("📚 Starting knowledge acquisition...")
+        # Count what we already know vs need to learn
+        already_known = sum(1 for topic in self.knowledge_topics if topic in self.topics_researched)
+        to_learn = len(self.knowledge_topics) - already_known
 
-        # Research each topic
+        logger.info(f"📚 Knowledge Status: {already_known} topics already learned, {to_learn} new topics to research")
+
+        if to_learn == 0:
+            logger.info("✅ All trading knowledge already acquired!")
+            return
+
+        # Research each new topic
+        researched_count = 0
         for topic in self.knowledge_topics:
             if topic in self.topics_researched:
                 continue
 
             try:
-                logger.info(f"🔍 Researching: {topic}")
+                logger.info(f"🔍 [{researched_count+1}/{to_learn}] Researching NEW topic: {topic}")
                 await self._research_topic(topic)
                 self.topics_researched.add(topic)
+                researched_count += 1
 
                 # Space out research (rate limiting)
                 await asyncio.sleep(60)  # 1 minute between topics
@@ -198,7 +208,10 @@ class TradeReviewAgent:
             except Exception as e:
                 logger.error(f"Error researching {topic}: {e}")
 
-        logger.info("✅ Initial knowledge acquisition complete")
+        if researched_count > 0:
+            logger.info(f"✅ Learned {researched_count} new topics! Total knowledge base: {len(self.topics_researched)} topics")
+        else:
+            logger.info("✅ No new topics to learn")
 
     async def _research_topic(self, topic: str):
         """Research a specific trading topic using web search"""
@@ -707,8 +720,7 @@ class TradeReviewAgent:
                 self.trading_knowledge.append(knowledge)
                 self._save_knowledge_db()
 
-                logger.info(f"✅ Learned about: {topic}")
-                logger.info(f"   Summary: {knowledge_data['summary'][:100]}...")
+                # Knowledge logged in main task, no need to log here
 
         except Exception as e:
             logger.error(f"Error researching topic {topic}: {e}")
