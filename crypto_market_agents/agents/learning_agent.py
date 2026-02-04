@@ -53,10 +53,10 @@ class LearningAgent(BaseAgent):
         """
         super().__init__(
             name="Learning Agent",
+            exchange=exchange,
             update_interval=update_interval
         )
 
-        self.exchange = exchange
         self.paper_trading = paper_trading
         self.min_trades_before_learning = min_trades_before_learning
         self.auto_optimize = auto_optimize

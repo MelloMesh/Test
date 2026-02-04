@@ -48,10 +48,10 @@ class SRDetectionAgent(BaseAgent):
         """
         super().__init__(
             name="S/R Detection",
+            exchange=exchange,
             update_interval=update_interval
         )
 
-        self.exchange = exchange
         self.symbols = symbols
         self.lookback = lookback
         self.min_touches = min_touches
