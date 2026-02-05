@@ -149,7 +149,7 @@ class SystemConfig:
         config.exchange.api_key = os.getenv("EXCHANGE_API_KEY")
         config.exchange.api_secret = os.getenv("EXCHANGE_API_SECRET")
         config.exchange.testnet = os.getenv("EXCHANGE_TESTNET", "false").lower() == "true"
-        config.exchange.name = os.getenv("EXCHANGE_NAME", "bybit")
+        config.exchange.name = os.getenv("EXCHANGE_NAME", "binance")  # Default to Binance (globally accessible)
 
         # System configuration
         config.log_level = os.getenv("LOG_LEVEL", "INFO")

@@ -159,6 +159,77 @@ class MockExchange(BaseExchange):
             for symbol in self.historical_data.keys()
         ]
 
+    async def get_trading_symbols(self, quote_currency: str = "USDT") -> List[str]:
+        """Get list of available trading symbols."""
+        return [
+            symbol for symbol in self.historical_data.keys()
+            if symbol.endswith(f"/{quote_currency}")
+        ]
+
+    async def get_tickers(self, symbols: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Get ticker data for multiple symbols."""
+        target_symbols = symbols if symbols else list(self.historical_data.keys())
+        tickers = []
+        for symbol in target_symbols:
+            ticker = await self.get_ticker(symbol)
+            if ticker:
+                tickers.append(ticker)
+        return tickers
+
+    async def get_klines(
+        self,
+        symbol: str,
+        interval: str,
+        limit: int = 100,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """Get candlestick/kline data."""
+        if symbol not in self.historical_data:
+            return []
+
+        candles = self.historical_data[symbol]
+        if not candles:
+            return []
+
+        # Filter by time range
+        filtered = candles
+        if start_time:
+            filtered = [c for c in filtered if c['timestamp'] >= start_time]
+        if end_time:
+            filtered = [c for c in filtered if c['timestamp'] <= end_time]
+
+        # Apply limit (take most recent)
+        filtered = filtered[-limit:]
+
+        return filtered
+
+    async def get_order_book(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
+        """Get order book depth (mocked for backtesting)."""
+        ticker = await self.get_ticker(symbol)
+        if not ticker:
+            return {'bids': [], 'asks': [], 'timestamp': datetime.now(timezone.utc)}
+
+        # Generate mock order book around current price
+        price = ticker['last_price']
+        return {
+            'bids': [[price * 0.999, 100.0], [price * 0.998, 200.0]],
+            'asks': [[price * 1.001, 100.0], [price * 1.002, 200.0]],
+            'timestamp': ticker['timestamp']
+        }
+
+    async def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get recent trades (mocked for backtesting)."""
+        return []  # Not needed for backtesting
+
+    def check_us_accessibility(self) -> Dict[str, Any]:
+        """Check US accessibility (mock exchange - always accessible)."""
+        return {
+            'accessible': True,
+            'restrictions': [],
+            'notes': 'Mock exchange for backtesting - no restrictions'
+        }
+
 
 class BacktestEngine:
     """

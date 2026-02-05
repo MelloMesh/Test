@@ -188,40 +188,28 @@ class HistoricalDataFetcher:
         Returns:
             List of candles
         """
-        # Convert to milliseconds timestamp
-        since = int(start_date.timestamp() * 1000)
         limit = 1000  # Most exchanges limit to 1000 candles
 
         try:
-            # Fetch from exchange (ccxt format)
-            raw_candles = await self.exchange.fetch_ohlcv(
+            # Fetch from exchange using BaseExchange interface
+            candles = await self.exchange.get_klines(
                 symbol=symbol,
-                timeframe=timeframe,
-                since=since,
-                limit=limit
+                interval=timeframe,
+                limit=limit,
+                start_time=start_date,
+                end_time=end_date
             )
 
-            if not raw_candles:
+            if not candles:
                 return []
 
-            # Convert to our format
-            candles = []
-            for candle in raw_candles:
-                timestamp_ms, open_price, high, low, close, volume = candle
-                candle_time = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+            # Filter candles within requested range (some exchanges may return more)
+            filtered_candles = [
+                c for c in candles
+                if start_date <= c['timestamp'] <= end_date
+            ]
 
-                # Only include candles within requested range
-                if start_date <= candle_time <= end_date:
-                    candles.append({
-                        'timestamp': candle_time,
-                        'open': float(open_price),
-                        'high': float(high),
-                        'low': float(low),
-                        'close': float(close),
-                        'volume': float(volume)
-                    })
-
-            return candles
+            return filtered_candles
 
         except Exception as e:
             self.logger.error(f"Error in _fetch_chunk: {e}")
