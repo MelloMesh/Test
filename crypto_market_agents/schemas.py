@@ -209,6 +209,17 @@ class StrategyMetrics:
     largest_loss_percent: float
     timestamp: datetime
 
+    # Streak tracking (added in optimization)
+    max_consecutive_wins: int = 0
+    max_consecutive_losses: int = 0
+    current_streak: int = 0  # Positive for wins, negative for losses
+
+    # Risk metrics (added in optimization)
+    sharpe_ratio: float = 0.0
+    sortino_ratio: float = 0.0
+    max_drawdown_percent: float = 0.0
+    calmar_ratio: float = 0.0
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             **asdict(self),

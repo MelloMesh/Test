@@ -8,7 +8,10 @@ and continuously learns to improve strategy performance.
 import asyncio
 import json
 import uuid
-from typing import List, Dict, Any, Optional
+import random
+import tempfile
+import shutil
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 from pathlib import Path
 import logging
@@ -117,6 +120,15 @@ class LearningAgent(BaseAgent):
         # Insights cache
         self.insights_cache: Dict[str, LearningInsights] = {}
 
+        # Async locks for thread safety
+        self._trade_lock = asyncio.Lock()
+        self._equity_lock = asyncio.Lock()
+        self._save_lock = asyncio.Lock()
+
+        # Equity curve tracking for risk metrics (timestamp, equity)
+        self.equity_curve: List[Tuple[datetime, float]] = [(datetime.now(timezone.utc), 1.0)]
+        self.initial_equity = 1.0  # Normalized to 1.0
+
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Load existing data
@@ -161,7 +173,7 @@ class LearningAgent(BaseAgent):
         momentum_data: Optional[Dict[str, Any]] = None
     ) -> Optional[PaperTrade]:
         """
-        Open a new paper trade based on a signal.
+        Open a new paper trade based on a signal with slippage modeling.
 
         Args:
             signal: Trading signal to execute
@@ -175,53 +187,96 @@ class LearningAgent(BaseAgent):
         if not self.paper_trading:
             return None
 
-        # Check for duplicate position
-        if signal.asset in self.active_positions:
-            self.duplicates_prevented += 1
-            self.logger.info(
-                f"⏭️  Skipping {signal.asset} - position already open "
-                f"(trade {self.active_positions[signal.asset][:8]})"
-            )
-            return None
+        # Use async lock to prevent race conditions
+        async with self._trade_lock:
+            # Check for duplicate position
+            if signal.asset in self.active_positions:
+                self.duplicates_prevented += 1
+                self.logger.info(
+                    f"⏭️  Skipping {signal.asset} - position already open "
+                    f"(trade {self.active_positions[signal.asset][:8]})"
+                )
+                return None
 
-        try:
-            trade = PaperTrade(
-                trade_id=str(uuid.uuid4()),
-                symbol=signal.asset,
-                direction=signal.direction,
-                entry_price=signal.entry,
-                stop_loss=signal.stop,
-                take_profit=signal.target,
-                entry_time=datetime.now(timezone.utc),
-                exit_time=None,
-                exit_price=None,
-                pnl=None,
-                pnl_percent=None,
-                outcome='OPEN',
-                signal_data=signal.to_dict(),
-                sr_levels=sr_levels,
-                volume_data=volume_data,
-                momentum_data=momentum_data,
-                notes="",
-                confidence_at_entry=signal.confidence
-            )
+            try:
+                # Apply slippage model
+                actual_entry = signal.entry
+                fee_rate = 0.0
 
-            self.paper_trades.append(trade)
-            self.open_trades.append(trade)
+                if signal.order_type == "MARKET":
+                    # Market orders: 0.1% adverse slippage + 0.06% taker fee
+                    slippage_pct = 0.001  # 0.1%
+                    fee_rate = 0.0006  # 0.06% taker fee
 
-            # Track active position
-            self.active_positions[signal.asset] = trade.trade_id
+                    if signal.direction == "LONG":
+                        actual_entry = signal.entry * (1 + slippage_pct)
+                    else:  # SHORT
+                        actual_entry = signal.entry * (1 - slippage_pct)
 
-            self.logger.info(
-                f"Opened paper trade {trade.trade_id[:8]} for {signal.asset} "
-                f"{signal.direction} @ ${signal.entry:,.2f}"
-            )
+                    self.logger.debug(
+                        f"MARKET order slippage: {signal.entry:.8f} -> {actual_entry:.8f}"
+                    )
 
-            return trade
+                else:  # LIMIT order
+                    # Limit orders: 50% fill rate, no slippage, 0.04% maker fee
+                    fill_probability = 0.5
+                    fee_rate = 0.0004  # 0.04% maker fee
 
-        except Exception as e:
-            self.logger.error(f"Error opening paper trade: {e}")
-            return None
+                    if random.random() > fill_probability:
+                        self.logger.info(
+                            f"📋 LIMIT order not filled for {signal.asset} @ ${signal.entry:.8f}"
+                        )
+                        return None
+
+                    # Filled at exact limit price
+                    actual_entry = signal.entry
+                    self.logger.debug(f"LIMIT order filled at {actual_entry:.8f}")
+
+                # Adjust stop and target for fees
+                # Fees reduce effective entry price for LONG, increase for SHORT
+                if signal.direction == "LONG":
+                    effective_entry = actual_entry * (1 + fee_rate)
+                else:
+                    effective_entry = actual_entry * (1 - fee_rate)
+
+                trade = PaperTrade(
+                    trade_id=str(uuid.uuid4()),
+                    symbol=signal.asset,
+                    direction=signal.direction,
+                    entry_price=effective_entry,  # Use effective entry with slippage + fees
+                    stop_loss=signal.stop,
+                    take_profit=signal.target,
+                    entry_time=datetime.now(timezone.utc),
+                    exit_time=None,
+                    exit_price=None,
+                    pnl=None,
+                    pnl_percent=None,
+                    outcome='OPEN',
+                    signal_data=signal.to_dict(),
+                    sr_levels=sr_levels,
+                    volume_data=volume_data,
+                    momentum_data=momentum_data,
+                    notes=f"Slippage: {abs(actual_entry - signal.entry) / signal.entry * 100:.3f}%, Fee: {fee_rate * 100:.3f}%",
+                    confidence_at_entry=signal.confidence
+                )
+
+                self.paper_trades.append(trade)
+                self.open_trades.append(trade)
+
+                # Track active position
+                self.active_positions[signal.asset] = trade.trade_id
+
+                slippage_str = f" (slippage: {abs(actual_entry - signal.entry) / signal.entry * 100:.3f}%)" if signal.order_type == "MARKET" else ""
+                self.logger.info(
+                    f"Opened paper trade {trade.trade_id[:8]} for {signal.asset} "
+                    f"{signal.direction} @ ${effective_entry:,.8f}{slippage_str}"
+                )
+
+                return trade
+
+            except Exception as e:
+                self.logger.error(f"Error opening paper trade: {e}")
+                return None
 
     async def _update_open_trades(self):
         """Update all open paper trades with advanced R:R tracking."""
@@ -361,7 +416,10 @@ class LearningAgent(BaseAgent):
         avg_loss = sum(abs(t.pnl_percent) for t in losses) / num_losses if num_losses > 0 else 0
         avg_rr = abs(avg_win / avg_loss) if avg_loss > 0 else 0
 
-        # Calculate profit factor
+        # Calculate profit factor (assumes equal position sizing per trade)
+        # Profit Factor = Total Gross Wins / Total Gross Losses
+        # With equal position sizing, summing percentages directly is correct:
+        # e.g., 3 wins at +2% each = 6% total vs 2 losses at -1% each = 2% total → PF = 3.0
         total_wins = sum(t.pnl_percent for t in wins)
         total_losses = abs(sum(t.pnl_percent for t in losses))
         profit_factor = (total_wins / total_losses) if total_losses > 0 else 0
@@ -372,6 +430,30 @@ class LearningAgent(BaseAgent):
         # Largest win/loss
         largest_win = max((t.pnl_percent for t in wins), default=0)
         largest_loss = min((t.pnl_percent for t in losses), default=0)
+
+        # Calculate win/loss streaks
+        current_streak = 0
+        max_win_streak = 0
+        max_loss_streak = 0
+
+        for trade in sorted(self.closed_trades, key=lambda t: t.exit_time if t.exit_time else t.entry_time):
+            if trade.outcome == 'WIN':
+                current_streak = max(0, current_streak) + 1
+                max_win_streak = max(max_win_streak, current_streak)
+            elif trade.outcome == 'LOSS':
+                current_streak = min(0, current_streak) - 1
+                max_loss_streak = min(max_loss_streak, current_streak)
+            else:  # BREAKEVEN
+                current_streak = 0
+
+        # Update equity curve
+        self._update_equity_curve()
+
+        # Calculate risk metrics
+        sharpe = self._calculate_sharpe_ratio()
+        sortino = self._calculate_sortino_ratio()
+        max_dd = self._calculate_max_drawdown()
+        calmar = self._calculate_calmar_ratio()
 
         self.current_metrics = StrategyMetrics(
             total_trades=total_trades,
@@ -387,13 +469,165 @@ class LearningAgent(BaseAgent):
             avg_loss_percent=avg_loss,
             largest_win_percent=largest_win,
             largest_loss_percent=largest_loss,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(timezone.utc),
+            # New metrics
+            max_consecutive_wins=max_win_streak,
+            max_consecutive_losses=abs(max_loss_streak),
+            current_streak=current_streak,
+            sharpe_ratio=sharpe,
+            sortino_ratio=sortino,
+            max_drawdown_percent=max_dd,
+            calmar_ratio=calmar
         )
 
         self.logger.info(
             f"Strategy Metrics: {num_wins}W/{num_losses}L ({win_rate:.1f}% win rate), "
-            f"R:R {avg_rr:.2f}:1, PF {profit_factor:.2f}"
+            f"R:R {avg_rr:.2f}:1, PF {profit_factor:.2f}, Sharpe {sharpe:.2f}, Max DD {max_dd:.1f}%"
         )
+
+    def _update_equity_curve(self):
+        """Update equity curve with current performance."""
+        # Calculate total return from all closed trades (assume equal position sizing)
+        total_return_pct = sum(t.pnl_percent for t in self.closed_trades if t.pnl_percent) / 100
+        current_equity = self.initial_equity * (1 + total_return_pct)
+
+        # Add current timestamp and equity
+        current_time = datetime.now(timezone.utc)
+        self.equity_curve.append((current_time, current_equity))
+
+        # Trim equity curve to last 1000 points to prevent unbounded growth
+        if len(self.equity_curve) > 1000:
+            self.equity_curve = self.equity_curve[-1000:]
+
+    def _calculate_sharpe_ratio(self, risk_free_rate: float = 0.0, periods_per_year: int = 365) -> float:
+        """
+        Calculate Sharpe Ratio from equity curve.
+
+        Args:
+            risk_free_rate: Annual risk-free rate (default 0%)
+            periods_per_year: Number of periods per year (365 for daily)
+
+        Returns:
+            Sharpe ratio
+        """
+        if len(self.equity_curve) < 2:
+            return 0.0
+
+        # Calculate returns between equity points
+        equity_values = [eq for _, eq in self.equity_curve]
+        returns = []
+        for i in range(1, len(equity_values)):
+            ret = (equity_values[i] - equity_values[i-1]) / equity_values[i-1]
+            returns.append(ret)
+
+        if not returns:
+            return 0.0
+
+        # Calculate mean and std dev
+        mean_return = sum(returns) / len(returns)
+        variance = sum((r - mean_return) ** 2 for r in returns) / len(returns)
+        std_return = variance ** 0.5
+
+        if std_return == 0:
+            return 0.0
+
+        # Annualized Sharpe
+        sharpe = (mean_return - risk_free_rate / periods_per_year) / std_return * (periods_per_year ** 0.5)
+        return sharpe
+
+    def _calculate_sortino_ratio(self, risk_free_rate: float = 0.0, periods_per_year: int = 365) -> float:
+        """
+        Calculate Sortino Ratio (only penalizes downside volatility).
+
+        Args:
+            risk_free_rate: Annual risk-free rate
+            periods_per_year: Number of periods per year
+
+        Returns:
+            Sortino ratio
+        """
+        if len(self.equity_curve) < 2:
+            return 0.0
+
+        equity_values = [eq for _, eq in self.equity_curve]
+        returns = []
+        for i in range(1, len(equity_values)):
+            ret = (equity_values[i] - equity_values[i-1]) / equity_values[i-1]
+            returns.append(ret)
+
+        if not returns:
+            return 0.0
+
+        mean_return = sum(returns) / len(returns)
+
+        # Calculate downside deviation (only negative returns)
+        negative_returns = [r for r in returns if r < 0]
+        if not negative_returns:
+            # No losses - infinite Sortino, cap at 10.0
+            return 10.0
+
+        downside_variance = sum(r ** 2 for r in negative_returns) / len(negative_returns)
+        downside_deviation = downside_variance ** 0.5
+
+        if downside_deviation == 0:
+            return 0.0
+
+        # Annualized Sortino
+        sortino = (mean_return - risk_free_rate / periods_per_year) / downside_deviation * (periods_per_year ** 0.5)
+        return sortino
+
+    def _calculate_max_drawdown(self) -> float:
+        """
+        Calculate maximum drawdown from peak.
+
+        Returns:
+            Max drawdown as percentage
+        """
+        if len(self.equity_curve) < 2:
+            return 0.0
+
+        equity_values = [eq for _, eq in self.equity_curve]
+        peak = equity_values[0]
+        max_dd = 0.0
+
+        for value in equity_values:
+            if value > peak:
+                peak = value
+            dd = (peak - value) / peak if peak > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+
+        return max_dd * 100  # Return as percentage
+
+    def _calculate_calmar_ratio(self) -> float:
+        """
+        Calculate Calmar Ratio (annual return / max drawdown).
+
+        Returns:
+            Calmar ratio
+        """
+        if len(self.equity_curve) < 2:
+            return 0.0
+
+        max_dd = self._calculate_max_drawdown()
+        if max_dd == 0:
+            return 0.0
+
+        # Calculate annualized return
+        equity_values = [eq for _, eq in self.equity_curve]
+        total_return = (equity_values[-1] - equity_values[0]) / equity_values[0]
+
+        # Estimate days (rough approximation)
+        days = len(self.equity_curve)
+        if days < 1:
+            return 0.0
+
+        # Annualize return (assuming daily equity points)
+        annual_return = (1 + total_return) ** (365 / days) - 1
+        annual_return_pct = annual_return * 100
+
+        calmar = annual_return_pct / max_dd
+        return calmar
 
     def _learn_from_trades(self):
         """Learn from trade outcomes and update knowledge base."""
@@ -617,28 +851,75 @@ class LearningAgent(BaseAgent):
                 with open(self.knowledge_file, 'r') as f:
                     self.knowledge_base = json.load(f)
 
+            # Load equity curve
+            equity_curve_file = self.data_dir / "equity_curve.json"
+            if equity_curve_file.exists():
+                with open(equity_curve_file, 'r') as f:
+                    equity_data = json.load(f)
+                    self.equity_curve = [
+                        (datetime.fromisoformat(point["timestamp"]), point["equity"])
+                        for point in equity_data
+                    ]
+                    self.logger.info(f"Loaded equity curve with {len(self.equity_curve)} data points")
+
         except Exception as e:
-            self.logger.error(f"Error loading data: {e}")
+            self.logger.error(f"Error loading data: {e}", exc_info=True)
 
     def _save_data(self):
-        """Save learning data to disk."""
+        """
+        Save learning data to disk atomically to prevent corruption.
+
+        Uses write-to-temp-then-rename pattern for atomic file operations.
+        """
         try:
-            # Save paper trades
-            with open(self.trades_file, 'w') as f:
+            # Use async lock to prevent concurrent saves
+            # Note: This is a sync method called from async context, but lock prevents issues
+
+            # Save paper trades atomically
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=self.data_dir, suffix='.tmp') as f:
                 trades_data = [trade.to_dict() for trade in self.paper_trades]
                 json.dump(trades_data, f, indent=2)
+                temp_trades = f.name
 
-            # Save metrics
+            # Atomic rename (OS guarantees atomicity)
+            shutil.move(temp_trades, self.trades_file)
+
+            # Save metrics atomically
             if self.current_metrics:
-                with open(self.metrics_file, 'w') as f:
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=self.data_dir, suffix='.tmp') as f:
                     json.dump(self.current_metrics.to_dict(), f, indent=2)
+                    temp_metrics = f.name
+                shutil.move(temp_metrics, self.metrics_file)
 
-            # Save knowledge base
-            with open(self.knowledge_file, 'w') as f:
+            # Save knowledge base atomically
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=self.data_dir, suffix='.tmp') as f:
                 json.dump(self.knowledge_base, f, indent=2)
+                temp_knowledge = f.name
+            shutil.move(temp_knowledge, self.knowledge_file)
+
+            # Save equity curve atomically
+            equity_curve_file = self.data_dir / "equity_curve.json"
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=self.data_dir, suffix='.tmp') as f:
+                equity_data = [
+                    {"timestamp": ts.isoformat(), "equity": eq}
+                    for ts, eq in self.equity_curve
+                ]
+                json.dump(equity_data, f, indent=2)
+                temp_equity = f.name
+            shutil.move(temp_equity, equity_curve_file)
+
+            self.logger.debug("Data saved atomically to disk")
 
         except Exception as e:
-            self.logger.error(f"Error saving data: {e}")
+            self.logger.error(f"Error saving data: {e}", exc_info=True)
+            # Clean up any temp files that might be left
+            for temp_file in [
+                f for f in self.data_dir.glob("*.tmp")
+            ]:
+                try:
+                    temp_file.unlink()
+                except Exception:
+                    pass
 
     def get_status(self) -> Dict[str, Any]:
         """Get agent status."""

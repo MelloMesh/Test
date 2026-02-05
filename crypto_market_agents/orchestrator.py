@@ -373,6 +373,16 @@ class AgentOrchestrator:
                 print(f"  Avg Win/Loss:      +{metrics.avg_win_percent:.2f}% / {metrics.avg_loss_percent:.2f}%")
                 print(f"  Largest Win/Loss:  +{metrics.largest_win_percent:.2f}% / {metrics.largest_loss_percent:.2f}%")
 
+                # Streak tracking
+                streak_str = f"+{metrics.current_streak}" if metrics.current_streak > 0 else str(metrics.current_streak)
+                print(f"  Current Streak:    {streak_str} (Max W: {metrics.max_consecutive_wins}, Max L: {metrics.max_consecutive_losses})")
+
+                # Risk metrics
+                print(f"  Sharpe Ratio:      {metrics.sharpe_ratio:.2f}")
+                print(f"  Sortino Ratio:     {metrics.sortino_ratio:.2f}")
+                print(f"  Max Drawdown:      {metrics.max_drawdown_percent:.2f}%")
+                print(f"  Calmar Ratio:      {metrics.calmar_ratio:.2f}")
+
                 # Performance status indicator
                 if metrics.profit_factor > 1.5:
                     status = "✅ PROFITABLE"
