@@ -224,7 +224,7 @@ class LearningAgent(BaseAgent):
             return None
 
     async def _update_open_trades(self):
-        """Update all open paper trades."""
+        """Update all open paper trades with advanced R:R tracking."""
         if not self.open_trades:
             return
 
@@ -237,22 +237,50 @@ class LearningAgent(BaseAgent):
 
                 current_price = ticker['last_price']
 
-                # Check if stop loss or take profit hit
+                # Calculate current P&L and R:R ratio
+                if trade.direction == 'LONG':
+                    pnl = current_price - trade.entry_price
+                    risk = trade.entry_price - trade.stop_loss
+                else:  # SHORT
+                    pnl = trade.entry_price - current_price
+                    risk = trade.stop_loss - trade.entry_price
+
+                current_rr = pnl / risk if risk > 0 else 0
+
+                # Update max favorable excursion and R:R
+                if current_rr > trade.max_rr_achieved:
+                    trade.max_rr_achieved = current_rr
+                    trade.max_favorable_excursion = current_price
+
+                # Check if target (2:1 R:R) hit for first time
+                if not trade.target_hit and current_rr >= 2.0:
+                    trade.target_hit = True
+                    trade.target_hit_time = datetime.now(timezone.utc)
+                    self.logger.info(
+                        f"🎯 Target hit! {trade.symbol} {trade.direction} reached 2:1 R:R "
+                        f"@ ${current_price:.8f} (continuing to monitor)"
+                    )
+                    # TODO: Send Telegram alert when target hit
+
+                # Determine if should close
                 should_close = False
                 outcome = 'OPEN'
 
+                # Always close on stop loss
                 if trade.direction == 'LONG':
                     if current_price <= trade.stop_loss:
                         should_close = True
                         outcome = 'LOSS'
-                    elif current_price >= trade.take_profit:
+                    # After target hit, close if price returns to entry (measure full move)
+                    elif trade.target_hit and current_price <= trade.entry_price:
                         should_close = True
-                        outcome = 'WIN'
+                        outcome = 'WIN'  # Target was hit, so it's a win
                 else:  # SHORT
                     if current_price >= trade.stop_loss:
                         should_close = True
                         outcome = 'LOSS'
-                    elif current_price <= trade.take_profit:
+                    # After target hit, close if price returns to entry
+                    elif trade.target_hit and current_price >= trade.entry_price:
                         should_close = True
                         outcome = 'WIN'
 
@@ -301,9 +329,12 @@ class LearningAgent(BaseAgent):
             if trade.symbol in self.active_positions:
                 del self.active_positions[trade.symbol]
 
+            # Log with max R:R achieved
+            max_rr_str = f", Max R:R: {trade.max_rr_achieved:.2f}:1" if trade.max_rr_achieved > 0 else ""
+            target_hit_str = " (🎯 Target hit)" if trade.target_hit else ""
             self.logger.info(
                 f"Closed paper trade {trade.trade_id[:8]} for {trade.symbol} "
-                f"{trade.direction}: {trade.outcome} ({pnl_percent:+.2f}%)"
+                f"{trade.direction}: {trade.outcome} ({pnl_percent:+.2f}%){max_rr_str}{target_hit_str}"
             )
 
         except Exception as e:

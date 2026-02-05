@@ -173,6 +173,12 @@ class PaperTrade:
     notes: str = ""
     confidence_at_entry: float = 0.0
 
+    # R:R tracking for optimal target analysis
+    target_hit: bool = False  # Whether initial target (2:1 R:R) was hit
+    target_hit_time: Optional[datetime] = None  # When target was hit
+    max_favorable_excursion: float = 0.0  # Best price achieved (in favor)
+    max_rr_achieved: float = 0.0  # Maximum R:R ratio achieved
+
     def to_dict(self) -> Dict[str, Any]:
         data = {
             **asdict(self),
@@ -180,6 +186,8 @@ class PaperTrade:
         }
         if self.exit_time:
             data["exit_time"] = self.exit_time.isoformat()
+        if self.target_hit_time:
+            data["target_hit_time"] = self.target_hit_time.isoformat()
         return data
 
 

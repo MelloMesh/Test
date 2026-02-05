@@ -142,8 +142,8 @@ class MarketMetricsCalculator:
         # Calculate recommended stop loss percentage
         recommended_stop = base_stop * vol_multiplier
 
-        # Cap at reasonable limits
-        recommended_stop = max(0.5, min(recommended_stop, 5.0))
+        # Cap at reasonable limits (increased to 6% for extreme volatility)
+        recommended_stop = max(0.5, min(recommended_stop, 6.0))
 
         return AssetMetrics(
             symbol=symbol,

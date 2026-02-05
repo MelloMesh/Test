@@ -58,8 +58,8 @@ class SignalSynthesisConfig:
     """Configuration for Signal Synthesis Agent."""
     enabled: bool = True
     reward_risk_ratio: float = 2.0
-    max_stop_loss_pct: float = 2.0
-    min_confidence: float = 0.35  # Temporarily reduced from 0.6 for testing
+    max_stop_loss_pct: float = 4.0  # Increased to 4% for volatile assets
+    min_confidence: float = 0.40  # Increased from 0.35 to improve win rate
     update_interval: int = 300  # seconds (5 minutes)
 
 

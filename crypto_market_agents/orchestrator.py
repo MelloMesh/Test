@@ -359,7 +359,34 @@ class AgentOrchestrator:
                         f"(confidence: {signal.confidence:.2f}) - {signal.rationale}"
                     )
 
-                # Send top signals to Telegram (with deduplication)
+            # Print real-time performance metrics
+            if self.learning_agent and self.learning_agent.current_metrics:
+                metrics = self.learning_agent.current_metrics
+                print(f"\n{'='*80}")
+                print(f"📊 REAL-TIME PERFORMANCE METRICS")
+                print(f"{'='*80}")
+                print(f"  Total Trades:      {metrics.total_trades} ({metrics.open_trades} open)")
+                print(f"  Win Rate:          {metrics.win_rate:.1f}% ({metrics.wins}W / {metrics.losses}L)")
+                print(f"  Avg R:R Ratio:     {metrics.avg_rr:.2f}:1")
+                print(f"  Profit Factor:     {metrics.profit_factor:.2f}")
+                print(f"  Total P&L:         {metrics.total_pnl_percent:+.2f}%")
+                print(f"  Avg Win/Loss:      +{metrics.avg_win_percent:.2f}% / {metrics.avg_loss_percent:.2f}%")
+                print(f"  Largest Win/Loss:  +{metrics.largest_win_percent:.2f}% / {metrics.largest_loss_percent:.2f}%")
+
+                # Performance status indicator
+                if metrics.profit_factor > 1.5:
+                    status = "✅ PROFITABLE"
+                elif metrics.profit_factor > 1.0:
+                    status = "🟡 BREAKEVEN+"
+                elif metrics.profit_factor > 0.7:
+                    status = "🟠 NEEDS IMPROVEMENT"
+                else:
+                    status = "🔴 LOSING"
+                print(f"  Status:            {status}")
+                print(f"{'='*80}\n")
+
+            # Send top signals to Telegram (with deduplication)
+            if trading_signals:
                 if self.telegram_bot and self.config.telegram.send_signals:
                     # Filter out signals that were already sent recently
                     new_signals = [s for s in trading_signals if self._should_send_signal(s)]
