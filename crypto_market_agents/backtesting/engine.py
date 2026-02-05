@@ -68,31 +68,43 @@ class MockExchange(BaseExchange):
         if not candles or self.current_time is None:
             return None
 
-        # Find candle at current time
-        for candle in candles:
+        # Find current candle index
+        current_idx = None
+        for idx, candle in enumerate(candles):
             if candle['timestamp'] >= self.current_time:
-                return {
-                    'symbol': symbol,
-                    'last_price': candle['close'],
-                    'high_24h': candle['high'],
-                    'low_24h': candle['low'],
-                    'volume_24h': candle['volume'],
-                    'timestamp': candle['timestamp']
-                }
+                current_idx = idx
+                break
 
         # If no future candles, use last available
-        if candles:
-            last_candle = candles[-1]
-            return {
-                'symbol': symbol,
-                'last_price': last_candle['close'],
-                'high_24h': last_candle['high'],
-                'low_24h': last_candle['low'],
-                'volume_24h': last_candle['volume'],
-                'timestamp': last_candle['timestamp']
-            }
+        if current_idx is None:
+            current_idx = len(candles) - 1
 
-        return None
+        current_candle = candles[current_idx]
+
+        # Calculate 24h price change (24 candles back for 1h timeframe)
+        price_change_pct = 0.0
+        if current_idx >= 24:
+            old_price = candles[current_idx - 24]['close']
+            current_price = current_candle['close']
+            if old_price > 0:
+                price_change_pct = ((current_price - old_price) / old_price) * 100
+
+        # Calculate bid/ask spread (mock with 0.1% spread)
+        last_price = current_candle['close']
+        bid = last_price * 0.999
+        ask = last_price * 1.001
+
+        return {
+            'symbol': symbol,
+            'last_price': last_price,
+            'bid': bid,
+            'ask': ask,
+            'high_24h': current_candle['high'],
+            'low_24h': current_candle['low'],
+            'volume_24h': current_candle['volume'],
+            'price_change_24h_pct': price_change_pct,
+            'timestamp': current_candle['timestamp']
+        }
 
     async def fetch_ohlcv(
         self,
