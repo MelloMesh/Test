@@ -79,6 +79,35 @@ class BinanceExchange(BaseExchange):
         self.rate_limiter = RateLimiter(max_requests=rate_limit, time_window=1.0)
         self.logger = logging.getLogger(self.__class__.__name__)
 
+    def _normalize_symbol(self, symbol: str) -> str:
+        """
+        Convert symbol from standard format (BTC/USDT) to Binance format (BTCUSDT).
+
+        Args:
+            symbol: Symbol in format "BTC/USDT" or "BTCUSDT"
+
+        Returns:
+            Symbol in Binance format (no slash)
+        """
+        return symbol.replace("/", "")
+
+    def _denormalize_symbol(self, symbol: str) -> str:
+        """
+        Convert symbol from Binance format (BTCUSDT) to standard format (BTC/USDT).
+
+        Args:
+            symbol: Symbol in Binance format
+
+        Returns:
+            Symbol in standard format with slash
+        """
+        # Common quote currencies
+        for quote in ["USDT", "BUSD", "USDC", "BTC", "ETH", "BNB"]:
+            if symbol.endswith(quote):
+                base = symbol[:-len(quote)]
+                return f"{base}/{quote}"
+        return symbol
+
     async def connect(self) -> bool:
         """Establish connection to Binance."""
         try:
@@ -155,11 +184,13 @@ class BinanceExchange(BaseExchange):
                     if (symbol.endswith(quote_currency) and
                         symbol_info.get('contractType') == 'PERPETUAL' and
                         symbol_info['status'] == 'TRADING'):
-                        symbols.append(symbol)
+                        # Convert to standard format with slash
+                        symbols.append(self._denormalize_symbol(symbol))
                 else:
                     if (symbol.endswith(quote_currency) and
                         symbol_info['status'] == 'TRADING'):
-                        symbols.append(symbol)
+                        # Convert to standard format with slash
+                        symbols.append(self._denormalize_symbol(symbol))
 
             self.logger.info(f"Found {len(symbols)} trading symbols on Binance")
             return sorted(symbols)
@@ -171,10 +202,13 @@ class BinanceExchange(BaseExchange):
     async def get_ticker(self, symbol: str) -> Dict[str, Any]:
         """Get ticker data for a symbol."""
         try:
+            # Convert symbol to Binance format
+            binance_symbol = self._normalize_symbol(symbol)
+
             result = await self._request(
                 "GET",
                 self.ticker_endpoint,
-                params={"symbol": symbol}
+                params={"symbol": binance_symbol}
             )
 
             if not result:
@@ -209,6 +243,11 @@ class BinanceExchange(BaseExchange):
     async def get_tickers(self, symbols: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Get ticker data for multiple symbols."""
         try:
+            # Normalize symbols if provided
+            binance_symbols = None
+            if symbols:
+                binance_symbols = [self._normalize_symbol(s) for s in symbols]
+
             # Get all tickers at once (more efficient than individual requests)
             result = await self._request("GET", self.ticker_endpoint)
 
@@ -221,7 +260,7 @@ class BinanceExchange(BaseExchange):
                 symbol = ticker_data.get('symbol')
 
                 # Filter by symbols if provided
-                if symbols and symbol not in symbols:
+                if binance_symbols and symbol not in binance_symbols:
                     continue
 
                 try:
@@ -290,8 +329,11 @@ class BinanceExchange(BaseExchange):
             if binance_interval.isdigit():
                 binance_interval = f"{binance_interval}m"
 
+            # Convert symbol to Binance format (remove slash)
+            binance_symbol = self._normalize_symbol(symbol)
+
             params = {
-                "symbol": symbol,
+                "symbol": binance_symbol,
                 "interval": binance_interval,
                 "limit": min(limit, 1000)  # Binance max is 1000
             }
@@ -327,12 +369,15 @@ class BinanceExchange(BaseExchange):
     async def get_order_book(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
         """Get order book depth."""
         try:
+            # Convert symbol to Binance format
+            binance_symbol = self._normalize_symbol(symbol)
+
             endpoint = "/fapi/v1/depth" if self.use_futures else "/api/v3/depth"
 
             result = await self._request(
                 "GET",
                 endpoint,
-                params={"symbol": symbol, "limit": min(limit, 1000)}
+                params={"symbol": binance_symbol, "limit": min(limit, 1000)}
             )
 
             if not result:
@@ -351,12 +396,15 @@ class BinanceExchange(BaseExchange):
     async def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Get recent trades."""
         try:
+            # Convert symbol to Binance format
+            binance_symbol = self._normalize_symbol(symbol)
+
             endpoint = "/fapi/v1/trades" if self.use_futures else "/api/v3/trades"
 
             result = await self._request(
                 "GET",
                 endpoint,
-                params={"symbol": symbol, "limit": min(limit, 1000)}
+                params={"symbol": binance_symbol, "limit": min(limit, 1000)}
             )
 
             if not result or not isinstance(result, list):
