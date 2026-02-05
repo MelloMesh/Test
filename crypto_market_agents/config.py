@@ -95,6 +95,19 @@ class LearningConfig:
 
 
 @dataclass
+class RiskManagementConfig:
+    """Configuration for Risk Management."""
+    enabled: bool = True
+    initial_capital: float = 10000.0  # Starting capital for position sizing
+    kelly_fraction: float = 0.25  # Fractional Kelly (0.25 = quarter Kelly)
+    max_portfolio_risk_pct: float = 10.0  # Max total risk as % of portfolio
+    max_drawdown_pct: float = 20.0  # Auto-alert if exceeded
+    max_concurrent_positions: int = 5
+    max_single_position_pct: float = 5.0  # Max size per position
+    max_correlated_exposure_pct: float = 15.0  # Max exposure to correlated assets
+
+
+@dataclass
 class TelegramConfig:
     """Configuration for Telegram Bot."""
     enabled: bool = True
@@ -117,6 +130,7 @@ class SystemConfig:
     sr_detection: SRDetectionConfig = field(default_factory=SRDetectionConfig)
     fibonacci: FibonacciConfig = field(default_factory=FibonacciConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
+    risk_management: RiskManagementConfig = field(default_factory=RiskManagementConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
     # Global settings

@@ -173,6 +173,10 @@ class PaperTrade:
     notes: str = ""
     confidence_at_entry: float = 0.0
 
+    # Position sizing (Kelly criterion)
+    position_size_pct: float = 1.0  # Position size as % of portfolio
+    kelly_fraction: float = 0.25  # Fractional Kelly used
+
     # R:R tracking for optimal target analysis
     target_hit: bool = False  # Whether initial target (2:1 R:R) was hit
     target_hit_time: Optional[datetime] = None  # When target was hit

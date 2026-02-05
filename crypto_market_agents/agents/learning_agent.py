@@ -24,6 +24,7 @@ from ..schemas import (
     StrategyMetrics,
     LearningInsights
 )
+from ..utils.risk_manager import RiskManager, RiskLimits
 
 
 class LearningAgent(BaseAgent):
@@ -41,7 +42,8 @@ class LearningAgent(BaseAgent):
         paper_trading: bool = True,
         min_trades_before_learning: int = 20,
         auto_optimize: bool = True,
-        update_interval: int = 300
+        update_interval: int = 300,
+        risk_manager: Optional[RiskManager] = None
     ):
         """
         Initialize Learning Agent.
@@ -128,6 +130,9 @@ class LearningAgent(BaseAgent):
         # Equity curve tracking for risk metrics (timestamp, equity)
         self.equity_curve: List[Tuple[datetime, float]] = [(datetime.now(timezone.utc), 1.0)]
         self.initial_equity = 1.0  # Normalized to 1.0
+
+        # Risk manager for position sizing and portfolio risk
+        self.risk_manager = risk_manager or RiskManager()
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -239,6 +244,40 @@ class LearningAgent(BaseAgent):
                 else:
                     effective_entry = actual_entry * (1 - fee_rate)
 
+                # Calculate position size using Kelly Criterion
+                position_size_pct = 1.0  # Default 1% if no metrics yet
+                kelly_fraction = 0.25  # Default quarter Kelly
+
+                if self.current_metrics and self.current_metrics.total_trades >= 5:
+                    # Use historical metrics for Kelly calculation
+                    stop_loss_pct = abs((signal.stop - effective_entry) / effective_entry) * 100
+
+                    position_size = self.risk_manager.calculate_kelly_position_size(
+                        symbol=signal.asset,
+                        win_rate=self.current_metrics.win_rate / 100,
+                        avg_win=self.current_metrics.avg_win_percent,
+                        avg_loss=abs(self.current_metrics.avg_loss_percent),
+                        stop_loss_pct=stop_loss_pct,
+                        kelly_fraction=kelly_fraction
+                    )
+
+                    position_size_pct = position_size.recommended_size_pct
+                    kelly_fraction = position_size.kelly_fraction
+
+                    self.logger.debug(f"Kelly position sizing: {position_size.reasoning}")
+
+                # Check risk limits before opening position
+                can_open, risk_reason = self.risk_manager.can_open_position(
+                    symbol=signal.asset,
+                    position_size_pct=position_size_pct,
+                    entry_price=effective_entry,
+                    stop_loss=signal.stop
+                )
+
+                if not can_open:
+                    self.logger.info(f"🚫 Risk limit exceeded for {signal.asset}: {risk_reason}")
+                    return None
+
                 trade = PaperTrade(
                     trade_id=str(uuid.uuid4()),
                     symbol=signal.asset,
@@ -257,7 +296,9 @@ class LearningAgent(BaseAgent):
                     volume_data=volume_data,
                     momentum_data=momentum_data,
                     notes=f"Slippage: {abs(actual_entry - signal.entry) / signal.entry * 100:.3f}%, Fee: {fee_rate * 100:.3f}%",
-                    confidence_at_entry=signal.confidence
+                    confidence_at_entry=signal.confidence,
+                    position_size_pct=position_size_pct,
+                    kelly_fraction=kelly_fraction
                 )
 
                 self.paper_trades.append(trade)
@@ -266,10 +307,22 @@ class LearningAgent(BaseAgent):
                 # Track active position
                 self.active_positions[signal.asset] = trade.trade_id
 
+                # Add position to risk manager
+                self.risk_manager.add_position(
+                    symbol=signal.asset,
+                    size_pct=position_size_pct,
+                    entry_price=effective_entry,
+                    stop_loss=signal.stop
+                )
+
+                # Update price history for correlation tracking
+                self.risk_manager.update_price_history(signal.asset, effective_entry)
+
                 slippage_str = f" (slippage: {abs(actual_entry - signal.entry) / signal.entry * 100:.3f}%)" if signal.order_type == "MARKET" else ""
                 self.logger.info(
                     f"Opened paper trade {trade.trade_id[:8]} for {signal.asset} "
-                    f"{signal.direction} @ ${effective_entry:,.8f}{slippage_str}"
+                    f"{signal.direction} @ ${effective_entry:,.8f}{slippage_str} "
+                    f"(position size: {position_size_pct:.2f}%)"
                 )
 
                 return trade
@@ -383,6 +436,15 @@ class LearningAgent(BaseAgent):
             # Remove from active positions
             if trade.symbol in self.active_positions:
                 del self.active_positions[trade.symbol]
+
+            # Remove from risk manager
+            self.risk_manager.remove_position(trade.symbol)
+
+            # Update capital in risk manager (convert percentage to capital change)
+            # For normalized 1.0 initial equity, P&L percent directly maps to capital change
+            capital_change = pnl_percent / 100 * trade.position_size_pct / 100
+            new_capital = self.risk_manager.current_capital * (1 + capital_change)
+            self.risk_manager.update_capital(new_capital)
 
             # Log with max R:R achieved
             max_rr_str = f", Max R:R: {trade.max_rr_achieved:.2f}:1" if trade.max_rr_achieved > 0 else ""

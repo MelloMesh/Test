@@ -21,6 +21,7 @@ from .agents.learning_agent import LearningAgent
 from .agents.signal_synthesis import SignalSynthesisAgent
 from .schemas import SystemReport, TradingSignal
 from .utils.logging import setup_logger
+from .utils.risk_manager import RiskManager, RiskLimits
 from .integrations.telegram_bot import TelegramBot
 
 
@@ -156,13 +157,35 @@ class AgentOrchestrator:
 
             # Learning Agent
             if hasattr(self.config, 'learning') and self.config.learning.enabled:
+                # Create risk manager with configuration
+                risk_limits = None
+                if hasattr(self.config, 'risk_management') and self.config.risk_management.enabled:
+                    risk_limits = RiskLimits(
+                        max_portfolio_risk_pct=self.config.risk_management.max_portfolio_risk_pct,
+                        max_drawdown_pct=self.config.risk_management.max_drawdown_pct,
+                        max_concurrent_positions=self.config.risk_management.max_concurrent_positions,
+                        max_single_position_pct=self.config.risk_management.max_single_position_pct,
+                        max_correlated_exposure_pct=self.config.risk_management.max_correlated_exposure_pct
+                    )
+                    risk_manager = RiskManager(
+                        initial_capital=self.config.risk_management.initial_capital,
+                        risk_limits=risk_limits
+                    )
+                    self.logger.info(
+                        f"Risk Manager initialized: ${self.config.risk_management.initial_capital:,.2f} capital, "
+                        f"{self.config.risk_management.max_concurrent_positions} max positions"
+                    )
+                else:
+                    risk_manager = None
+
                 self.learning_agent = LearningAgent(
                     self.exchange,
                     data_dir=self.config.learning.data_dir if hasattr(self.config.learning, 'data_dir') else "data",
                     paper_trading=self.config.learning.paper_trading,
                     min_trades_before_learning=self.config.learning.min_trades_before_learning,
                     auto_optimize=self.config.learning.auto_optimize,
-                    update_interval=self.config.learning.update_interval
+                    update_interval=self.config.learning.update_interval,
+                    risk_manager=risk_manager
                 )
                 self.agents.append(self.learning_agent)
                 self.logger.info("Learning Agent initialized")
@@ -393,6 +416,31 @@ class AgentOrchestrator:
                 else:
                     status = "🔴 LOSING"
                 print(f"  Status:            {status}")
+                print(f"{'='*80}\n")
+
+            # Print risk management report
+            if self.learning_agent and self.learning_agent.risk_manager:
+                risk_report = self.learning_agent.risk_manager.get_risk_report()
+                print(f"\n{'='*80}")
+                print(f"🛡️  RISK MANAGEMENT REPORT")
+                print(f"{'='*80}")
+                print(f"  Capital:           ${risk_report['current_capital']:,.2f} (Initial: ${risk_report['initial_capital']:,.2f})")
+                print(f"  Drawdown:          {risk_report['drawdown_pct']:.2f}% (Max: {self.config.risk_management.max_drawdown_pct}%)")
+                print(f"  Open Positions:    {risk_report['open_positions']}/{risk_report['max_positions']}")
+                print(f"  Portfolio Risk:    {risk_report['total_risk_pct']:.2f}% / {risk_report['max_portfolio_risk_pct']:.2f}% ({risk_report['risk_utilization_pct']:.0f}% utilized)")
+                print(f"  Total Exposure:    {risk_report['total_exposure_pct']:.2f}%")
+
+                if risk_report['positions']:
+                    print(f"\n  Active Positions:")
+                    for pos in risk_report['positions']:
+                        print(f"    • {pos['symbol']}: {pos['size_pct']:.2f}% @ ${pos['entry']:.8f}, Stop: ${pos['stop']:.8f} (Risk: {pos['risk_pct']:.2f}%)")
+
+                # Risk warnings
+                if risk_report['drawdown_pct'] > self.config.risk_management.max_drawdown_pct * 0.8:
+                    print(f"\n  ⚠️  WARNING: Approaching max drawdown limit!")
+                if risk_report['risk_utilization_pct'] > 80:
+                    print(f"  ⚠️  WARNING: High risk utilization ({risk_report['risk_utilization_pct']:.0f}%)")
+
                 print(f"{'='*80}\n")
 
             # Send top signals to Telegram (with deduplication)
