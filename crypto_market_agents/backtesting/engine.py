@@ -81,9 +81,26 @@ class MockExchange(BaseExchange):
 
         current_candle = candles[current_idx]
 
-        # Calculate 24h price change (24 candles back for 1h timeframe)
+        # Calculate 24h metrics (24 candles back for 1h timeframe)
         price_change_pct = 0.0
+        high_24h = current_candle['high']
+        low_24h = current_candle['low']
+        volume_24h = current_candle['volume']
+
         if current_idx >= 24:
+            # Get last 24 candles (including current)
+            last_24_candles = candles[current_idx - 23:current_idx + 1]
+
+            # Calculate 24h high (max of all highs)
+            high_24h = max(candle['high'] for candle in last_24_candles)
+
+            # Calculate 24h low (min of all lows)
+            low_24h = min(candle['low'] for candle in last_24_candles)
+
+            # Calculate 24h volume (sum of all volumes)
+            volume_24h = sum(candle['volume'] for candle in last_24_candles)
+
+            # Calculate 24h price change
             old_price = candles[current_idx - 24]['close']
             current_price = current_candle['close']
             if old_price > 0:
@@ -99,9 +116,9 @@ class MockExchange(BaseExchange):
             'last_price': last_price,
             'bid': bid,
             'ask': ask,
-            'high_24h': current_candle['high'],
-            'low_24h': current_candle['low'],
-            'volume_24h': current_candle['volume'],
+            'high_24h': high_24h,
+            'low_24h': low_24h,
+            'volume_24h': volume_24h,
             'price_change_24h_pct': price_change_pct,
             'timestamp': current_candle['timestamp']
         }
