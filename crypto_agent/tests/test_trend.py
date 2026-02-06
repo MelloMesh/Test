@@ -8,6 +8,7 @@ from src.indicators.trend import (
     calculate_adx,
     calculate_atr,
     calculate_ema,
+    calculate_keltner_channel,
     check_mtf_alignment,
     get_market_regime,
     get_trend_direction,
@@ -186,3 +187,39 @@ class TestMTFAlignment:
         candles = _make_trending_candles(5)
         aligned, reason = check_mtf_alignment("LONG", candles, ema_period=50)
         assert aligned == True
+
+
+class TestKeltnerChannel:
+    def test_keltner_returns_dataframe(self):
+        candles = _make_trending_candles(100)
+        kc = calculate_keltner_channel(candles)
+        assert isinstance(kc, pd.DataFrame)
+        assert "middle" in kc.columns
+        assert "upper" in kc.columns
+        assert "lower" in kc.columns
+        assert len(kc) == 100
+
+    def test_upper_above_middle_above_lower(self):
+        candles = _make_trending_candles(100)
+        kc = calculate_keltner_channel(candles)
+        valid = kc.dropna()
+        assert (valid["upper"] >= valid["middle"]).all()
+        assert (valid["middle"] >= valid["lower"]).all()
+
+    def test_wider_multiplier_wider_bands(self):
+        candles = _make_trending_candles(100)
+        kc_narrow = calculate_keltner_channel(candles, atr_multiplier=1.0)
+        kc_wide = calculate_keltner_channel(candles, atr_multiplier=3.0)
+        valid_narrow = kc_narrow.dropna()
+        valid_wide = kc_wide.dropna()
+        # Wider multiplier = wider band spread
+        narrow_spread = (valid_narrow["upper"] - valid_narrow["lower"]).mean()
+        wide_spread = (valid_wide["upper"] - valid_wide["lower"]).mean()
+        assert wide_spread > narrow_spread
+
+    def test_keltner_custom_periods(self):
+        candles = _make_trending_candles(100)
+        kc = calculate_keltner_channel(candles, ema_period=10, atr_period=10, atr_multiplier=1.5)
+        assert len(kc) == 100
+        valid = kc.dropna()
+        assert len(valid) > 0

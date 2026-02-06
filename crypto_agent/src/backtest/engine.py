@@ -109,7 +109,7 @@ def run_backtest(
             stop = pos_data["stop"]
             entry_idx = pos_data["entry_index"]
 
-            # Check stop loss
+            # Check stop loss (or trailing stop)
             if check_stop_hit(current_candle, signal.direction, stop):
                 exit_price = stop  # Assume stop fills at stop price
                 remaining_size = pos.size_usd * pos.remaining_size_pct
@@ -119,6 +119,10 @@ def run_backtest(
                 net_r = raw_r - costs_r
                 pnl = net_r * risk_amount
 
+                # Determine reason: trailing_stop if stop was moved above/below entry
+                is_trailing = pos.stop_moved_to_be
+                reason = "trailing_stop" if is_trailing else "stop_loss"
+
                 trade_results.append({
                     "pnl": pnl,
                     "r_multiple": net_r,
@@ -126,7 +130,7 @@ def run_backtest(
                     "entry_price": pos.entry_price,
                     "exit_price": exit_price,
                     "stop_price": signal.stop_loss,
-                    "reason": "stop_loss",
+                    "reason": reason,
                     "timeframe": timeframe,
                     "entry_time": pos.opened_at,
                     "exit_time": current_time,
@@ -134,14 +138,18 @@ def run_backtest(
                     "risk_amount": risk_amount,
                 })
 
-                portfolio.close_position(pos, exit_price, "stop_loss", abs(pnl) if pnl < 0 else 0)
+                portfolio.close_position(pos, exit_price, reason, abs(pnl) if pnl < 0 else 0)
                 closed_indices.append(idx)
                 continue
 
-            # Check take profits (tiered)
+            # Check take profits (tiered) — skip "trail" TPs (no fixed price)
             tps = pos_data["tps_remaining"]
             new_tps = []
             for tp in tps:
+                if tp["level"] == "trail":
+                    # Trail TPs have no fixed exit — kept for trailing stop exit
+                    new_tps.append(tp)
+                    continue
                 if check_tp_hit(current_candle, signal.direction, tp["price"]):
                     partial_size = pos.size_usd * tp["pct"]
                     risk_amount = signal.risk_pct * portfolio.equity * tp["pct"]
@@ -172,11 +180,15 @@ def run_backtest(
 
             pos_data["tps_remaining"] = new_tps
 
-            # If all TPs hit, close the position fully
+            # Check if only trail TPs remain — if so, managed entirely by trailing stop
+            non_trail_tps = [tp for tp in new_tps if tp["level"] != "trail"]
+            trail_tps = [tp for tp in new_tps if tp["level"] == "trail"]
+
+            # If no TPs left at all, close fully
             if not new_tps and pos.remaining_size_pct <= 0.01:
                 if pos in portfolio.positions:
                     portfolio.positions.remove(pos)
-                    portfolio.cash += pos.margin_used  # Return remaining margin
+                    portfolio.cash += pos.margin_used
                 closed_indices.append(idx)
                 continue
 
@@ -381,11 +393,22 @@ def _apply_tp_config(
     direction: str,
     tp_config: list[dict],
 ) -> list[dict]:
-    """Apply TP config to fib levels to get actual TP prices."""
+    """Apply TP config to fib levels to get actual TP prices.
+
+    Supports "trail" level type — these have no fixed price and are
+    exited via the trailing stop mechanism.
+    """
     take_profits = []
     for tp in tp_config:
         level = tp["level"]
-        if level in fib_levels:
+        if level == "trail":
+            # Trailing portion: no fixed exit price, managed by trailing stop
+            take_profits.append({
+                "level": "trail",
+                "price": None,
+                "pct": tp["pct"],
+            })
+        elif level in fib_levels:
             take_profits.append({
                 "level": level,
                 "price": fib_levels[level],

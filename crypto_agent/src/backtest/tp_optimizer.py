@@ -2,25 +2,26 @@
 Take profit allocation optimizer.
 Tests multiple TP allocation configurations against backtest data
 and recommends the best risk-adjusted configuration.
-"""
 
-from itertools import product
+Updated for 3-level TP + trailing final portion.
+"""
 
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 # TP configurations to test
-# Each config is (TP1%, TP2%, TP3%, TP4%) at fib levels (0.5, 0.382, 0.236, ext)
+# Each config: (TP1% at 0.5 fib, TP2% at 0.236 fib, Trail% trailed with ATR)
+# All must sum to 1.0
 DEFAULT_TP_CONFIGS = [
-    {"tp1_pct": 0.40, "tp2_pct": 0.30, "tp3_pct": 0.20, "tp4_pct": 0.10},
-    {"tp1_pct": 0.50, "tp2_pct": 0.25, "tp3_pct": 0.15, "tp4_pct": 0.10},
-    {"tp1_pct": 0.30, "tp2_pct": 0.30, "tp3_pct": 0.30, "tp4_pct": 0.10},
-    {"tp1_pct": 0.30, "tp2_pct": 0.30, "tp3_pct": 0.20, "tp4_pct": 0.20},
-    {"tp1_pct": 0.25, "tp2_pct": 0.25, "tp3_pct": 0.25, "tp4_pct": 0.25},
-    {"tp1_pct": 0.60, "tp2_pct": 0.20, "tp3_pct": 0.10, "tp4_pct": 0.10},
-    {"tp1_pct": 0.20, "tp2_pct": 0.30, "tp3_pct": 0.30, "tp4_pct": 0.20},
-    {"tp1_pct": 0.35, "tp2_pct": 0.35, "tp3_pct": 0.20, "tp4_pct": 0.10},
+    {"tp1_pct": 0.40, "tp2_pct": 0.30, "trail_pct": 0.30},  # Default: balanced
+    {"tp1_pct": 0.50, "tp2_pct": 0.30, "trail_pct": 0.20},  # Conservative: secure more early
+    {"tp1_pct": 0.30, "tp2_pct": 0.30, "trail_pct": 0.40},  # Aggressive: let more run
+    {"tp1_pct": 0.33, "tp2_pct": 0.34, "trail_pct": 0.33},  # Equal split
+    {"tp1_pct": 0.40, "tp2_pct": 0.20, "trail_pct": 0.40},  # Heavy trail
+    {"tp1_pct": 0.50, "tp2_pct": 0.20, "trail_pct": 0.30},  # Early secure + trail
+    {"tp1_pct": 0.60, "tp2_pct": 0.20, "trail_pct": 0.20},  # Very conservative
+    {"tp1_pct": 0.30, "tp2_pct": 0.20, "trail_pct": 0.50},  # Maximum trail
 ]
 
 
@@ -34,13 +35,12 @@ def config_to_tp_list(config: dict) -> list[dict]:
     Convert a TP config dict to the list format used by the strategy.
 
     Returns:
-        List of {'level': float, 'pct': float} dicts.
+        List of {'level': float|str, 'pct': float} dicts.
     """
     return [
         {"level": 0.5, "pct": config["tp1_pct"]},
-        {"level": 0.382, "pct": config["tp2_pct"]},
-        {"level": 0.236, "pct": config["tp3_pct"]},
-        {"level": 1.272, "pct": config["tp4_pct"]},
+        {"level": 0.236, "pct": config["tp2_pct"]},
+        {"level": "trail", "pct": config["trail_pct"]},
     ]
 
 
@@ -77,9 +77,13 @@ def evaluate_config(
     # R-multiples
     r_multiples = []
     for t in trade_results:
-        risk = t.get("risk_amount", 0)
-        if risk > 0:
-            r_multiples.append(t["pnl"] / risk)
+        r = t.get("r_multiple", 0)
+        if r != 0:
+            r_multiples.append(r)
+        else:
+            risk = t.get("risk_amount", 0)
+            if risk > 0:
+                r_multiples.append(t["pnl"] / risk)
     avg_r = sum(r_multiples) / len(r_multiples) if r_multiples else 0
 
     # Max drawdown
@@ -126,7 +130,7 @@ def recommend_best_config(results: list[dict]) -> dict | None:
     best = max(valid, key=lambda r: r.get("profit_factor", 0))
     logger.info(
         f"Recommended TP config: TP1={best['tp1_pct']:.0%}, TP2={best['tp2_pct']:.0%}, "
-        f"TP3={best['tp3_pct']:.0%}, TP4={best['tp4_pct']:.0%} "
+        f"Trail={best['trail_pct']:.0%} "
         f"(PF={best['profit_factor']:.2f}, WR={best['win_rate']:.0%}, MaxDD={best['max_dd_pct']:.1%})"
     )
     return best

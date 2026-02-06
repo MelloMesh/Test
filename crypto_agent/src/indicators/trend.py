@@ -157,6 +157,40 @@ def calculate_adx(
     )
 
 
+def calculate_keltner_channel(
+    candles: pd.DataFrame,
+    ema_period: int = 20,
+    atr_period: int = 14,
+    atr_multiplier: float = 2.0,
+) -> pd.DataFrame:
+    """
+    Calculate Keltner Channel.
+
+    Keltner Channel = EMA center ± ATR × multiplier.
+    Research shows Keltner trailing is the #1 stop strategy across 87 tested methods.
+
+    Args:
+        candles: OHLCV DataFrame.
+        ema_period: Period for center EMA (default 20).
+        atr_period: Period for ATR calculation (default 14).
+        atr_multiplier: Band width in ATR multiples (default 2.0).
+
+    Returns:
+        DataFrame with columns: middle, upper, lower
+    """
+    close = candles["close"]
+    middle = calculate_ema(close, ema_period)
+    atr = calculate_atr(candles, atr_period)
+
+    upper = middle + atr * atr_multiplier
+    lower = middle - atr * atr_multiplier
+
+    return pd.DataFrame(
+        {"middle": middle, "upper": upper, "lower": lower},
+        index=candles.index,
+    )
+
+
 def get_trend_direction(candles: pd.DataFrame, ema_period: int = 50) -> str:
     """
     Determine trend direction from EMA slope and price position.

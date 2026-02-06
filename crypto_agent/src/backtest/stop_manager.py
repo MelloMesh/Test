@@ -10,7 +10,7 @@ Enhanced with:
 import pandas as pd
 
 from src.indicators.rsi import calculate_rsi
-from src.indicators.trend import calculate_atr
+from src.indicators.trend import calculate_atr, calculate_keltner_channel
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -22,8 +22,10 @@ BE_BUFFER_PCT = 0.0015
 # Trailing stop activates after this many R of profit
 TRAILING_ACTIVATION_R = 1.5
 
-# Trailing stop distance in ATR multiples
-TRAILING_ATR_MULTIPLIER = 2.0
+# Keltner Channel trailing parameters
+KELTNER_EMA_PERIOD = 20
+KELTNER_ATR_PERIOD = 14
+KELTNER_ATR_MULTIPLIER = 2.0
 
 
 def check_stop_hit(
@@ -157,10 +159,14 @@ def calculate_trailing_stop(
     current_stop: float,
 ) -> float:
     """
-    Calculate ATR-based trailing stop.
+    Calculate Keltner Channel trailing stop.
 
-    Trails at TRAILING_ATR_MULTIPLIER × ATR from the best price since entry.
-    Only moves the stop in the profitable direction (never widens risk).
+    Uses the Keltner Channel lower band (for longs) or upper band (for shorts)
+    as the trailing stop level. Research shows Keltner trailing is the #1 stop
+    strategy across 87 tested methods.
+
+    Only activates after TRAILING_ACTIVATION_R of profit to avoid premature trailing.
+    Only moves stop in the profitable direction (never widens risk).
 
     Args:
         candles: OHLCV DataFrame.
@@ -173,15 +179,18 @@ def calculate_trailing_stop(
     Returns:
         New stop price (may be same as current_stop if no improvement).
     """
-    if current_index < 15:
+    if current_index < max(KELTNER_EMA_PERIOD, KELTNER_ATR_PERIOD) + 1:
         return current_stop
 
-    atr = calculate_atr(candles.iloc[:current_index + 1])
-    if len(atr) < 1:
-        return current_stop
+    window = candles.iloc[:current_index + 1]
+    keltner = calculate_keltner_channel(
+        window,
+        ema_period=KELTNER_EMA_PERIOD,
+        atr_period=KELTNER_ATR_PERIOD,
+        atr_multiplier=KELTNER_ATR_MULTIPLIER,
+    )
 
-    current_atr = float(atr.iloc[-1])
-    if current_atr <= 0:
+    if len(keltner) < 1:
         return current_stop
 
     current_price = float(candles["close"].iloc[current_index])
@@ -194,15 +203,16 @@ def calculate_trailing_stop(
     if direction == "LONG":
         profit_r = (current_price - entry_price) / risk_distance
         if profit_r >= TRAILING_ACTIVATION_R:
-            # Trail at 2 ATR below the highest close
-            trail_price = current_price - current_atr * TRAILING_ATR_MULTIPLIER
+            # Trail at Keltner lower band
+            keltner_lower = float(keltner["lower"].iloc[-1])
             # Only move stop up, never down
-            return max(current_stop, trail_price)
+            return max(current_stop, keltner_lower)
     else:
         profit_r = (entry_price - current_price) / risk_distance
         if profit_r >= TRAILING_ACTIVATION_R:
-            trail_price = current_price + current_atr * TRAILING_ATR_MULTIPLIER
+            # Trail at Keltner upper band
+            keltner_upper = float(keltner["upper"].iloc[-1])
             # Only move stop down, never up
-            return min(current_stop, trail_price)
+            return min(current_stop, keltner_upper)
 
     return current_stop

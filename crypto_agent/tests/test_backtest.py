@@ -12,7 +12,12 @@ from src.backtest.costs import (
 )
 from src.backtest.engine import run_backtest, _calculate_pnl
 from src.backtest.report import generate_report, _calculate_max_drawdown
-from src.backtest.stop_manager import check_stop_hit, check_tp_hit
+from src.backtest.stop_manager import (
+    calculate_trailing_stop,
+    check_stop_hit,
+    check_tp_hit,
+    get_be_price,
+)
 from src.backtest.tp_optimizer import config_to_tp_list, evaluate_config, get_tp_configs
 
 
@@ -107,6 +112,92 @@ class TestStopManager:
         assert check_tp_hit(candle, "SHORT", 96.0) == True
 
 
+class TestTrailingStop:
+    """Test Keltner Channel trailing stop."""
+
+    def _make_candles(self, n=100, base=100.0, trend=0.1):
+        np.random.seed(42)
+        prices = base + np.arange(n) * trend + np.random.randn(n) * 0.2
+        return pd.DataFrame({
+            "high": prices + abs(np.random.randn(n) * 0.3) + 0.2,
+            "low": prices - abs(np.random.randn(n) * 0.3) - 0.2,
+            "close": prices,
+            "open": prices - 0.05,
+            "volume": np.full(n, 1000.0),
+        })
+
+    def test_no_trailing_before_activation(self):
+        """Trailing stop should not activate before profit threshold."""
+        candles = self._make_candles(50, base=100.0, trend=0.01)
+        result = calculate_trailing_stop(
+            candles, 49, "LONG",
+            entry_price=100.0, stop_price=98.0, current_stop=98.0,
+        )
+        # Profit is too small to activate trailing
+        # Should return current_stop unchanged
+        assert result == 98.0
+
+    def test_trailing_activates_long(self):
+        """Trailing stop should activate after reaching R threshold for longs."""
+        candles = self._make_candles(50, base=100.0, trend=0.3)
+        # Entry at 100, stop at 98 (2.0 risk distance)
+        # At index 49: price ~= 100 + 49*0.3 = 114.7 → profit_r = 14.7/2 = 7.35R
+        result = calculate_trailing_stop(
+            candles, 49, "LONG",
+            entry_price=100.0, stop_price=98.0, current_stop=100.15,
+        )
+        # Should trail above the BE price
+        assert result >= 100.15
+
+    def test_trailing_activates_short(self):
+        """Trailing stop should activate after reaching R threshold for shorts."""
+        candles = self._make_candles(50, base=100.0, trend=-0.3)
+        # Entry at 100, stop at 102 (2.0 risk distance)
+        # Price drops: 100 - 49*0.3 = 85.3 → profit_r = (100-85.3)/2 = 7.35R
+        result = calculate_trailing_stop(
+            candles, 49, "SHORT",
+            entry_price=100.0, stop_price=102.0, current_stop=99.85,
+        )
+        # Should trail below the BE price
+        assert result <= 99.85
+
+    def test_trailing_never_widens_risk(self):
+        """Stop should only move in profitable direction."""
+        candles = self._make_candles(50, base=100.0, trend=0.3)
+        tight_stop = 112.0  # Already very tight
+        result = calculate_trailing_stop(
+            candles, 49, "LONG",
+            entry_price=100.0, stop_price=98.0, current_stop=tight_stop,
+        )
+        assert result >= tight_stop
+
+    def test_insufficient_data(self):
+        """Should return current_stop with insufficient data."""
+        candles = self._make_candles(10)
+        result = calculate_trailing_stop(
+            candles, 5, "LONG",
+            entry_price=100.0, stop_price=98.0, current_stop=98.0,
+        )
+        assert result == 98.0
+
+
+class TestBreakevenPrice:
+    """Test breakeven with buffer."""
+
+    def test_long_be_above_entry(self):
+        be = get_be_price(100.0, "LONG")
+        assert be > 100.0
+
+    def test_short_be_below_entry(self):
+        be = get_be_price(100.0, "SHORT")
+        assert be < 100.0
+
+    def test_be_buffer_size(self):
+        be_long = get_be_price(100.0, "LONG")
+        # Buffer should be ~0.15%
+        assert be_long == pytest.approx(100.15, abs=0.01)
+
+
 class TestPnlCalculation:
     """Test P&L calculation."""
 
@@ -186,18 +277,22 @@ class TestTPOptimizer:
     def test_configs_sum_to_1(self):
         """All TP allocations should sum to 100%."""
         for config in get_tp_configs():
-            total = config["tp1_pct"] + config["tp2_pct"] + config["tp3_pct"] + config["tp4_pct"]
+            total = config["tp1_pct"] + config["tp2_pct"] + config["trail_pct"]
             assert total == pytest.approx(1.0, abs=0.01)
 
     def test_config_to_tp_list(self):
-        config = {"tp1_pct": 0.40, "tp2_pct": 0.30, "tp3_pct": 0.20, "tp4_pct": 0.10}
+        config = {"tp1_pct": 0.40, "tp2_pct": 0.30, "trail_pct": 0.30}
         tp_list = config_to_tp_list(config)
-        assert len(tp_list) == 4
+        assert len(tp_list) == 3
         assert tp_list[0]["level"] == 0.5
         assert tp_list[0]["pct"] == 0.40
+        assert tp_list[1]["level"] == 0.236
+        assert tp_list[1]["pct"] == 0.30
+        assert tp_list[2]["level"] == "trail"
+        assert tp_list[2]["pct"] == 0.30
 
     def test_evaluate_config_empty(self):
-        config = {"tp1_pct": 0.4, "tp2_pct": 0.3, "tp3_pct": 0.2, "tp4_pct": 0.1}
+        config = {"tp1_pct": 0.4, "tp2_pct": 0.3, "trail_pct": 0.3}
         result = evaluate_config(config, [], [], 10000)
         assert result["win_rate"] == 0
         assert result["profit_factor"] == 0

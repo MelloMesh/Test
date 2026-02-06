@@ -11,7 +11,7 @@ Entry conditions (ALL must be true):
 4. Signal aligns with higher-timeframe trend (MTF filter)
 5. Risk manager approves the trade
 
-Confluence scoring with 6 factors determines 1% vs 2% risk per trade.
+Confluence scoring with 7 factors determines 1% vs 2% risk per trade.
 """
 
 from datetime import datetime, timezone
@@ -50,7 +50,7 @@ from src.indicators.trend import (
     check_mtf_alignment,
     get_market_regime,
 )
-from src.indicators.volume import volume_confirms_divergence
+from src.indicators.volume import detect_obv_divergence, volume_confirms_divergence
 from src.strategy.signals import Signal
 from src.utils.logger import get_logger
 
@@ -283,7 +283,7 @@ def score_confluence(
 
     Base signal: confidence=0.6, risk=0.01 (1%)
     Each confluence factor adds confidence and risk.
-    6 factors available, max: confidence=1.0, risk=0.02 (2%)
+    7 factors available, max: confidence=1.0, risk=0.02 (2%)
 
     Args:
         candles: OHLCV DataFrame.
@@ -338,6 +338,12 @@ def score_confluence(
         confidence += 0.05
         risk_pct += 0.002
         factors.append(f"ranging_regime(ADX={regime['adx']:.0f})")
+
+    # Factor 7: OBV divergence confirmation (double divergence = high conviction)
+    if detect_obv_divergence(candles, div):
+        confidence += 0.1
+        risk_pct += 0.002
+        factors.append("obv_divergence")
 
     # Cap at maximums
     confidence = min(confidence, 1.0)

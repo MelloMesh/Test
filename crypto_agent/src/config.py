@@ -104,13 +104,17 @@ HTF_MAP = {
 
 # ---------------------------------------------------------------------------
 # Take Profit Defaults (refined by backtesting)
+# Research: 3 levels is sweet spot. Trail final portion for max R.
 # ---------------------------------------------------------------------------
 DEFAULT_TP_CONFIG = [
-    {"level": 0.5, "pct": 0.30},    # TP1: 30% at 0.5 fib
-    {"level": 0.382, "pct": 0.30},   # TP2: 30% at 0.382 fib
-    {"level": 0.236, "pct": 0.20},   # TP3: 20% at 0.236 fib
-    {"level": 1.272, "pct": 0.20},   # TP4: 20% at extension
+    {"level": 0.5, "pct": 0.40},    # TP1: 40% at 0.5 fib (secure profit early)
+    {"level": 0.236, "pct": 0.30},   # TP2: 30% at 0.236 fib (deeper recovery)
+    {"level": "trail", "pct": 0.30}, # TP3: 30% trailed — no fixed exit, let winners run
 ]
+
+# Trailing portion config
+TRAIL_ACTIVATION_R = 1.5             # Start trailing after 1.5R profit
+TRAIL_ATR_MULTIPLIER = 2.0           # Trail distance: 2.0 × ATR
 
 # ---------------------------------------------------------------------------
 # Costs (Binance Futures)
