@@ -129,6 +129,11 @@ def load_historical_klines(
 
     combined = pd.concat(dfs, ignore_index=True)
 
+    # Binance CSVs may include header rows — drop any non-numeric open_time
+    combined["open_time"] = pd.to_numeric(combined["open_time"], errors="coerce")
+    combined = combined.dropna(subset=["open_time"])
+    combined["open_time"] = combined["open_time"].astype(int)
+
     # Binance timestamps: milliseconds (pre-2025) or microseconds (2025+)
     # Detect: if max timestamp > year 2100 in ms, it's microseconds
     max_ts = combined["open_time"].max()
