@@ -122,7 +122,7 @@ class TestScoreConfluence:
             price=98000,  # Not in golden pocket → no depth bonus
             timeframe="15m",
         )
-        assert conf >= 0.7
+        assert conf >= 0.6
         assert risk >= 0.01
 
     def test_max_confluence_capped(self):

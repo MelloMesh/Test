@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.indicators.rsi import calculate_rsi, detect_divergence, detect_rsi_peaks
+from src.indicators.rsi import calculate_rsi, detect_divergence, detect_hidden_divergence, detect_rsi_peaks
 
 
 class TestCalculateRSI:
@@ -216,3 +216,70 @@ class TestDetectDivergence:
             assert "peak2" in d
             assert "confirmed" in d
             assert "index" in d
+
+
+class TestDetectHiddenDivergence:
+    """Test hidden divergence detection."""
+
+    def test_hidden_bullish(self):
+        """Price higher low + RSI lower low = hidden bullish."""
+        peaks = [
+            {"type": "oversold", "rsi_value": 25.0, "price_at_peak": 95.0, "index": 10},
+            {"type": "oversold", "rsi_value": 20.0, "price_at_peak": 97.0, "index": 30},
+        ]
+        prices = pd.Series([100.0] * 50)
+        rsi = pd.Series([50.0] * 50)
+
+        divs = detect_hidden_divergence(prices, rsi, peaks)
+        hidden_bull = [d for d in divs if d["type"] == "hidden_bullish"]
+        assert len(hidden_bull) >= 1
+
+    def test_hidden_bearish(self):
+        """Price lower high + RSI higher high = hidden bearish."""
+        peaks = [
+            {"type": "overbought", "rsi_value": 75.0, "price_at_peak": 105.0, "index": 10},
+            {"type": "overbought", "rsi_value": 80.0, "price_at_peak": 103.0, "index": 30},
+        ]
+        prices = pd.Series([100.0] * 50)
+        rsi = pd.Series([50.0] * 50)
+
+        divs = detect_hidden_divergence(prices, rsi, peaks)
+        hidden_bear = [d for d in divs if d["type"] == "hidden_bearish"]
+        assert len(hidden_bear) >= 1
+
+    def test_no_hidden_div_insufficient_peaks(self):
+        peaks = [{"type": "oversold", "rsi_value": 25.0, "price_at_peak": 95.0, "index": 10}]
+        prices = pd.Series([100.0] * 50)
+        rsi = pd.Series([50.0] * 50)
+
+        divs = detect_hidden_divergence(prices, rsi, peaks)
+        assert len(divs) == 0
+
+    def test_hidden_div_respects_max_distance(self):
+        peaks = [
+            {"type": "oversold", "rsi_value": 25.0, "price_at_peak": 95.0, "index": 10},
+            {"type": "oversold", "rsi_value": 20.0, "price_at_peak": 97.0, "index": 200},
+        ]
+        prices = pd.Series([100.0] * 250)
+        rsi = pd.Series([50.0] * 250)
+
+        divs = detect_hidden_divergence(prices, rsi, peaks, max_peak_distance=50)
+        assert len(divs) == 0
+
+    def test_hidden_div_has_required_fields(self):
+        peaks = [
+            {"type": "oversold", "rsi_value": 25.0, "price_at_peak": 95.0, "index": 10},
+            {"type": "oversold", "rsi_value": 20.0, "price_at_peak": 97.0, "index": 30},
+        ]
+        prices = pd.Series([100.0] * 50)
+        rsi = pd.Series([50.0] * 50)
+
+        divs = detect_hidden_divergence(prices, rsi, peaks)
+        if divs:
+            d = divs[0]
+            assert "type" in d
+            assert d["type"].startswith("hidden_")
+            assert "confidence" in d
+            assert "peak1" in d
+            assert "peak2" in d
+            assert d["confirmed"] == True

@@ -17,7 +17,13 @@ import pandas as pd
 
 from src.backtest.costs import calculate_r_multiple, cost_as_r, estimate_round_trip_cost
 from src.backtest.report import generate_report, print_report, print_tp_optimization_table, save_equity_curve
-from src.backtest.stop_manager import check_stop_hit, check_tp_hit, should_move_stop_to_be
+from src.backtest.stop_manager import (
+    calculate_trailing_stop,
+    check_stop_hit,
+    check_tp_hit,
+    get_be_price,
+    should_move_stop_to_be,
+)
 from src.backtest.tp_optimizer import config_to_tp_list, evaluate_config, get_tp_configs, recommend_best_config
 from src.config import DEFAULT_LEVERAGE, DEFAULT_TP_CONFIG, STRATEGY_TIMEFRAMES
 from src.indicators.fibonacci import calculate_fib_levels, detect_swings, get_latest_swing_pair, is_in_golden_pocket
@@ -174,13 +180,23 @@ def run_backtest(
                 closed_indices.append(idx)
                 continue
 
-            # Check stop-to-breakeven
+            # Check stop-to-breakeven (with buffer, not exact BE)
             if not pos.stop_moved_to_be:
                 if should_move_stop_to_be(candles, i, signal.direction, entry_idx):
-                    pos_data["stop"] = pos.entry_price
+                    pos_data["stop"] = get_be_price(pos.entry_price, signal.direction)
                     pos.stop_moved_to_be = True
                     be_stop_triggers += 1
-                    logger.debug(f"Stop moved to BE for {symbol} at index {i}")
+                    logger.debug(f"Stop moved to BE+buffer for {symbol} at index {i}")
+
+            # ATR-based trailing stop (after reaching profit threshold)
+            if pos.stop_moved_to_be:
+                new_trail = calculate_trailing_stop(
+                    candles, i, signal.direction,
+                    pos.entry_price, signal.stop_loss, pos_data["stop"],
+                )
+                if new_trail != pos_data["stop"]:
+                    pos_data["stop"] = new_trail
+                    logger.debug(f"Trailing stop updated for {symbol} at index {i}: {new_trail:.2f}")
 
             # Update current price for unrealized PnL
             pos.current_price = current_price

@@ -309,6 +309,99 @@ def detect_divergence(
     return divergences
 
 
+def detect_hidden_divergence(
+    prices: pd.Series,
+    rsi: pd.Series,
+    peaks: list[dict],
+    max_peak_distance: int = 100,
+) -> list[dict]:
+    """
+    Detect hidden RSI divergence (trend-continuation signals).
+
+    Hidden bullish: Price makes higher low, RSI makes lower low (in oversold zone).
+      → Indicates hidden buying pressure, trend continuation upward.
+
+    Hidden bearish: Price makes lower high, RSI makes higher high (in overbought zone).
+      → Indicates hidden selling pressure, trend continuation downward.
+
+    Hidden divergence is powerful at fib retracement levels because it confirms
+    the prevailing trend will likely resume from the pullback.
+
+    Args:
+        prices: Price series.
+        rsi: RSI series.
+        peaks: List of peaks from detect_rsi_peaks().
+        max_peak_distance: Max candles between two peaks.
+
+    Returns:
+        List of divergence dicts with type "hidden_bullish" or "hidden_bearish".
+    """
+    divergences: list[dict] = []
+
+    if len(peaks) < 2:
+        return divergences
+
+    ob_peaks = [p for p in peaks if p["type"] == "overbought"]
+    os_peaks = [p for p in peaks if p["type"] == "oversold"]
+
+    # --- Hidden bullish (from oversold peaks) ---
+    # Price: higher low, RSI: lower low
+    for i in range(1, len(os_peaks)):
+        peak1 = os_peaks[i - 1]
+        peak2 = os_peaks[i]
+
+        if peak2["index"] - peak1["index"] > max_peak_distance:
+            continue
+
+        price_higher = peak2["price_at_peak"] > peak1["price_at_peak"]
+        rsi_lower = peak2["rsi_value"] < peak1["rsi_value"]
+
+        if price_higher and rsi_lower:
+            rsi_diff = peak1["rsi_value"] - peak2["rsi_value"]
+            price_diff_pct = (peak2["price_at_peak"] - peak1["price_at_peak"]) / peak1["price_at_peak"]
+            confidence = min(0.5 + (rsi_diff / 20.0) + (price_diff_pct * 10), 1.0)
+
+            divergences.append({
+                "type": "hidden_bullish",
+                "confidence": round(confidence, 3),
+                "peak1": peak1,
+                "peak2": peak2,
+                "confirmed": True,
+                "index": peak2["index"],
+            })
+
+    # --- Hidden bearish (from overbought peaks) ---
+    # Price: lower high, RSI: higher high
+    for i in range(1, len(ob_peaks)):
+        peak1 = ob_peaks[i - 1]
+        peak2 = ob_peaks[i]
+
+        if peak2["index"] - peak1["index"] > max_peak_distance:
+            continue
+
+        price_lower = peak2["price_at_peak"] < peak1["price_at_peak"]
+        rsi_higher = peak2["rsi_value"] > peak1["rsi_value"]
+
+        if price_lower and rsi_higher:
+            rsi_diff = peak2["rsi_value"] - peak1["rsi_value"]
+            price_diff_pct = (peak1["price_at_peak"] - peak2["price_at_peak"]) / peak1["price_at_peak"]
+            confidence = min(0.5 + (rsi_diff / 20.0) + (price_diff_pct * 10), 1.0)
+
+            divergences.append({
+                "type": "hidden_bearish",
+                "confidence": round(confidence, 3),
+                "peak1": peak1,
+                "peak2": peak2,
+                "confirmed": True,
+                "index": peak2["index"],
+            })
+
+    logger.debug(f"Detected {len(divergences)} hidden divergences "
+                 f"({sum(1 for d in divergences if d['type']=='hidden_bullish')} h-bull, "
+                 f"{sum(1 for d in divergences if d['type']=='hidden_bearish')} h-bear)")
+    return divergences
+
+
 def get_rsi_snapshot(rsi_series: pd.Series, index: int) -> dict:
     """
     Get an RSI snapshot at a given index for signal reporting.

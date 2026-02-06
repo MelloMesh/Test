@@ -82,6 +82,27 @@ SWING_LOOKBACK = 100           # Candles to analyze
 SWING_MIN_BARS = 5             # Min candles on each side of swing point
 
 # ---------------------------------------------------------------------------
+# Trend & Regime Filters
+# ---------------------------------------------------------------------------
+HTF_EMA_PERIOD = 50            # EMA period for higher-timeframe trend
+ADX_PERIOD = 14                # ADX calculation period
+ADX_STRONG_TREND = 40          # ADX above this = strong trend → skip divergence
+ADX_WEAK_TREND = 20            # ADX below this = ranging → ideal for divergence
+ATR_PERIOD = 14                # ATR calculation period
+ATR_STOP_MIN_MULTIPLIER = 1.0  # Stop must be at least 1.0 ATR from entry
+ATR_STOP_MAX_MULTIPLIER = 3.0  # Stop must not exceed 3.0 ATR from entry
+
+# Map each execution TF to a higher TF for trend confirmation
+HTF_MAP = {
+    "1m": "15m",
+    "5m": "1h",
+    "15m": "1h",
+    "30m": "4h",
+    "1h": "4h",
+    "4h": "1d",
+}
+
+# ---------------------------------------------------------------------------
 # Take Profit Defaults (refined by backtesting)
 # ---------------------------------------------------------------------------
 DEFAULT_TP_CONFIG = [

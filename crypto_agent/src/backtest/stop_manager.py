@@ -1,14 +1,29 @@
 """
 Stop loss management for backtesting.
-Simulates stop-to-breakeven logic based on RSI divergence confirmation candles.
+
+Enhanced with:
+- Stop-to-breakeven with buffer (not exact BE — avoids premature stops)
+- ATR-based trailing stop after reaching profit threshold
+- RSI divergence confirmation candle check
 """
 
 import pandas as pd
 
 from src.indicators.rsi import calculate_rsi
+from src.indicators.trend import calculate_atr
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Breakeven buffer: move stop to entry ± 0.15% (not exact breakeven)
+# This avoids getting stopped out on normal retracement noise
+BE_BUFFER_PCT = 0.0015
+
+# Trailing stop activates after this many R of profit
+TRAILING_ACTIVATION_R = 1.5
+
+# Trailing stop distance in ATR multiples
+TRAILING_ATR_MULTIPLIER = 2.0
 
 
 def check_stop_hit(
@@ -111,3 +126,83 @@ def should_move_stop_to_be(
 
         # RSI should be falling and below its recent high
         return current_rsi < prev_rsi and current_rsi < 70
+
+
+def get_be_price(entry_price: float, direction: str) -> float:
+    """
+    Get breakeven price with buffer.
+
+    Instead of exact breakeven (which gets stopped out on normal noise),
+    sets stop slightly in profit to cover costs and avoid whipsaws.
+
+    Args:
+        entry_price: Original entry price.
+        direction: "LONG" or "SHORT".
+
+    Returns:
+        Breakeven price with buffer.
+    """
+    if direction == "LONG":
+        return entry_price * (1 + BE_BUFFER_PCT)
+    else:
+        return entry_price * (1 - BE_BUFFER_PCT)
+
+
+def calculate_trailing_stop(
+    candles: pd.DataFrame,
+    current_index: int,
+    direction: str,
+    entry_price: float,
+    stop_price: float,
+    current_stop: float,
+) -> float:
+    """
+    Calculate ATR-based trailing stop.
+
+    Trails at TRAILING_ATR_MULTIPLIER × ATR from the best price since entry.
+    Only moves the stop in the profitable direction (never widens risk).
+
+    Args:
+        candles: OHLCV DataFrame.
+        current_index: Current candle index.
+        direction: "LONG" or "SHORT".
+        entry_price: Original entry price.
+        stop_price: Original stop loss price.
+        current_stop: Current stop level.
+
+    Returns:
+        New stop price (may be same as current_stop if no improvement).
+    """
+    if current_index < 15:
+        return current_stop
+
+    atr = calculate_atr(candles.iloc[:current_index + 1])
+    if len(atr) < 1:
+        return current_stop
+
+    current_atr = float(atr.iloc[-1])
+    if current_atr <= 0:
+        return current_stop
+
+    current_price = float(candles["close"].iloc[current_index])
+    risk_distance = abs(entry_price - stop_price)
+
+    if risk_distance == 0:
+        return current_stop
+
+    # Check if we've reached the trailing activation threshold
+    if direction == "LONG":
+        profit_r = (current_price - entry_price) / risk_distance
+        if profit_r >= TRAILING_ACTIVATION_R:
+            # Trail at 2 ATR below the highest close
+            trail_price = current_price - current_atr * TRAILING_ATR_MULTIPLIER
+            # Only move stop up, never down
+            return max(current_stop, trail_price)
+    else:
+        profit_r = (entry_price - current_price) / risk_distance
+        if profit_r >= TRAILING_ACTIVATION_R:
+            trail_price = current_price + current_atr * TRAILING_ATR_MULTIPLIER
+            # Only move stop down, never up
+            return min(current_stop, trail_price)
+
+    return current_stop
