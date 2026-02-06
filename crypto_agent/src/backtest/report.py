@@ -55,7 +55,7 @@ def generate_report(
     profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
     net_pnl = sum(pnls)
-    total_fees = sum(t.get("fees", 0) for t in trade_results)
+    total_cost_r = sum(t.get("cost_r", 0) for t in trade_results)
 
     # Max drawdown from equity curve
     max_dd, max_dd_pct = _calculate_max_drawdown(equity_curve, initial_equity)
@@ -67,13 +67,17 @@ def generate_report(
     else:
         sharpe = 0
 
-    # R-multiples (PnL / initial risk per trade)
+    # R-multiples (directly from trade results or computed from PnL/risk)
     r_multiples = []
     for t in trade_results:
-        risk = t.get("risk_amount", 0)
-        if risk > 0:
-            r_multiples.append(t["pnl"] / risk)
+        if "r_multiple" in t:
+            r_multiples.append(t["r_multiple"])
+        else:
+            risk = t.get("risk_amount", 0)
+            if risk > 0:
+                r_multiples.append(t["pnl"] / risk)
     avg_r = np.mean(r_multiples) if r_multiples else 0
+    total_r = sum(r_multiples) if r_multiples else 0
 
     # Holding times
     holding_times = []
@@ -111,10 +115,11 @@ def generate_report(
         "max_drawdown_pct": round(max_dd_pct, 4),
         "sharpe_ratio": round(sharpe, 3),
         "avg_r_multiple": round(avg_r, 3),
+        "total_r": round(total_r, 3),
+        "total_cost_r": round(total_cost_r, 3),
         "largest_win": round(max(pnls), 2) if pnls else 0,
         "largest_loss": round(min(pnls), 2) if pnls else 0,
         "avg_holding_hours": round(avg_holding_hours, 2),
-        "total_fees": round(total_fees, 2),
         "signals_generated": signals_generated,
         "signals_taken": signals_taken,
         "be_stop_triggers": be_stop_triggers,
@@ -141,14 +146,19 @@ def print_report(report: dict) -> None:
         f"Total Trades:      {report['total_trades']}",
         f"Win Rate:          {report['win_rate']:.1%} ({report['win_count']}W / {report['loss_count']}L)",
         f"Profit Factor:     {report['profit_factor']:.3f}",
+        "",
+        "--- R-Multiple Summary ---",
+        f"Avg R-Multiple:    {report['avg_r_multiple']:+.3f}R",
+        f"Total R:           {report['total_r']:+.3f}R",
+        f"Total Costs:       {report['total_cost_r']:.3f}R",
+        "",
+        "--- Dollar P&L ---",
         f"Net P&L:           ${report['net_pnl']:.2f} ({report['return_pct']:.2%})",
         f"Max Drawdown:      ${report['max_drawdown']:.2f} ({report['max_drawdown_pct']:.2%})",
         f"Sharpe Ratio:      {report['sharpe_ratio']:.3f}",
-        f"Avg R-Multiple:    {report['avg_r_multiple']:.3f}",
         f"Largest Win:       ${report['largest_win']:.2f}",
         f"Largest Loss:      ${report['largest_loss']:.2f}",
         f"Avg Holding Time:  {report['avg_holding_hours']:.1f} hours",
-        f"Total Fees:        ${report['total_fees']:.2f}",
         "",
         f"Signals Generated: {report['signals_generated']}",
         f"Signals Taken:     {report['signals_taken']}",
@@ -246,8 +256,9 @@ def _empty_report(initial_equity: float) -> dict:
         "win_rate": 0, "gross_profit": 0, "gross_loss": 0,
         "net_pnl": 0, "profit_factor": 0, "max_drawdown": 0,
         "max_drawdown_pct": 0, "sharpe_ratio": 0, "avg_r_multiple": 0,
+        "total_r": 0, "total_cost_r": 0,
         "largest_win": 0, "largest_loss": 0, "avg_holding_hours": 0,
-        "total_fees": 0, "signals_generated": 0, "signals_taken": 0,
+        "signals_generated": 0, "signals_taken": 0,
         "be_stop_triggers": 0, "initial_equity": initial_equity,
         "final_equity": initial_equity, "return_pct": 0,
         "long_trades": 0, "short_trades": 0, "long_pnl": 0, "short_pnl": 0,

@@ -1,47 +1,78 @@
 """
 Trading cost simulation for backtesting.
-Includes maker/taker fees, slippage, and funding rate costs.
+
+Uses a flat round-trip percentage for simplicity.
+P&L is expressed in R-multiples (risk units).
 """
 
-from src.config import MAKER_FEE, SLIPPAGE_EST, TAKER_FEE
+from src.config import ROUND_TRIP_COST_PCT
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-def calculate_entry_cost(size_usd: float, is_taker: bool = True) -> float:
+def estimate_round_trip_cost(size_usd: float) -> float:
     """
-    Calculate the cost of opening a position.
+    Flat round-trip cost estimate (entry + exit fees + slippage).
+
+    Uses ROUND_TRIP_COST_PCT from config (default 0.14%).
 
     Args:
         size_usd: Position size in USDT.
-        is_taker: True for market orders (taker fee), False for limit (maker fee).
 
     Returns:
-        Total entry cost in USDT (fee + slippage).
+        Estimated total cost in USDT.
     """
-    fee_rate = TAKER_FEE if is_taker else MAKER_FEE
-    fee = size_usd * fee_rate
-    slippage = size_usd * SLIPPAGE_EST
-    return fee + slippage
+    return size_usd * ROUND_TRIP_COST_PCT
 
 
-def calculate_exit_cost(size_usd: float, is_taker: bool = True) -> float:
+def calculate_r_multiple(
+    direction: str,
+    entry_price: float,
+    exit_price: float,
+    stop_price: float,
+) -> float:
     """
-    Calculate the cost of closing a position.
-    Same as entry cost — fees apply both ways.
+    Calculate P&L as an R-multiple (before costs).
+
+    1R = the distance from entry to stop loss.
+    A stop-loss hit returns -1.0R, take profits return positive R values.
+
+    Args:
+        direction: "LONG" or "SHORT".
+        entry_price: Entry price.
+        exit_price: Price at which position was closed.
+        stop_price: Original stop loss price.
+
+    Returns:
+        R-multiple (e.g., -1.0 for stop hit, +2.0 for 2R winner).
     """
-    fee_rate = TAKER_FEE if is_taker else MAKER_FEE
-    fee = size_usd * fee_rate
-    slippage = size_usd * SLIPPAGE_EST
-    return fee + slippage
+    risk_distance = abs(entry_price - stop_price)
+    if risk_distance == 0:
+        return 0.0
+
+    if direction == "LONG":
+        move = exit_price - entry_price
+    else:
+        move = entry_price - exit_price
+
+    return move / risk_distance
 
 
-def calculate_round_trip_cost(size_usd: float) -> float:
+def cost_as_r(size_usd: float, risk_amount: float) -> float:
     """
-    Total cost for opening and closing a position (both sides taker).
+    Express the flat round-trip cost as a fraction of R.
+
+    Args:
+        size_usd: Position size in USDT.
+        risk_amount: Dollar amount of 1R (risk_pct * equity).
+
+    Returns:
+        Cost in R-units (e.g., 0.07 means cost = 0.07R).
     """
-    return calculate_entry_cost(size_usd) + calculate_exit_cost(size_usd)
+    if risk_amount <= 0:
+        return 0.0
+    return estimate_round_trip_cost(size_usd) / risk_amount
 
 
 def calculate_funding_cost(
@@ -64,8 +95,6 @@ def calculate_funding_cost(
     Returns:
         Funding cost (positive = you pay, negative = you receive).
     """
-    # Long pays funding when rate is positive (shorts receive)
-    # Short pays funding when rate is negative (longs receive)
     if direction == "LONG":
         cost = size_usd * funding_rate * periods
     else:

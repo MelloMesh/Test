@@ -5,10 +5,10 @@ import pandas as pd
 import pytest
 
 from src.backtest.costs import (
-    calculate_entry_cost,
-    calculate_exit_cost,
     calculate_funding_cost,
-    calculate_round_trip_cost,
+    calculate_r_multiple,
+    cost_as_r,
+    estimate_round_trip_cost,
 )
 from src.backtest.engine import run_backtest, _calculate_pnl
 from src.backtest.report import generate_report, _calculate_max_drawdown
@@ -19,20 +19,46 @@ from src.backtest.tp_optimizer import config_to_tp_list, evaluate_config, get_tp
 class TestCosts:
     """Test trading cost calculations."""
 
-    def test_entry_cost_taker(self):
-        cost = calculate_entry_cost(10000, is_taker=True)
-        # 0.04% fee + 0.03% slippage = 0.07% of 10000 = 7
-        assert cost == pytest.approx(7.0, rel=0.1)
+    def test_round_trip_cost_flat(self):
+        """0.14% of position size."""
+        cost = estimate_round_trip_cost(10000)
+        assert cost == pytest.approx(14.0)  # 10000 * 0.0014
 
-    def test_entry_cost_maker(self):
-        cost = calculate_entry_cost(10000, is_taker=False)
-        # 0.02% fee + 0.03% slippage = 0.05% of 10000 = 5
-        assert cost == pytest.approx(5.0, rel=0.1)
+    def test_r_multiple_long_stop(self):
+        """LONG stopped out at stop = -1R."""
+        r = calculate_r_multiple("LONG", 100.0, 95.0, 95.0)
+        assert r == pytest.approx(-1.0)
 
-    def test_round_trip_cost(self):
-        cost = calculate_round_trip_cost(10000)
-        # Both sides taker: 2 * 7 = 14
-        assert cost == pytest.approx(14.0, rel=0.1)
+    def test_r_multiple_long_2r_winner(self):
+        """LONG wins 2R: moves 2x the risk distance."""
+        r = calculate_r_multiple("LONG", 100.0, 110.0, 95.0)
+        assert r == pytest.approx(2.0)
+
+    def test_r_multiple_short_stop(self):
+        """SHORT stopped out at stop = -1R."""
+        r = calculate_r_multiple("SHORT", 100.0, 105.0, 105.0)
+        assert r == pytest.approx(-1.0)
+
+    def test_r_multiple_short_winner(self):
+        """SHORT wins 1.5R."""
+        r = calculate_r_multiple("SHORT", 100.0, 92.5, 105.0)
+        assert r == pytest.approx(1.5)
+
+    def test_r_multiple_zero_risk(self):
+        """Zero risk distance returns 0."""
+        r = calculate_r_multiple("LONG", 100.0, 105.0, 100.0)
+        assert r == 0.0
+
+    def test_cost_as_r(self):
+        """Cost expressed as fraction of R."""
+        # 10000 position, 100 risk amount
+        # cost = 10000 * 0.0014 = 14, in R = 14/100 = 0.14R
+        r_cost = cost_as_r(10000, 100)
+        assert r_cost == pytest.approx(0.14)
+
+    def test_cost_as_r_zero_risk(self):
+        r_cost = cost_as_r(10000, 0)
+        assert r_cost == 0.0
 
     def test_funding_cost_long_positive_rate(self):
         """Long pays when funding rate is positive."""
@@ -111,11 +137,11 @@ class TestReport:
 
     def test_report_with_trades(self):
         trades = [
-            {"pnl": 100.0, "direction": "LONG", "fees": 5, "risk_amount": 100,
+            {"pnl": 100.0, "direction": "LONG", "r_multiple": 1.0, "cost_r": 0.05, "risk_amount": 100,
              "timeframe": "15m", "entry_time": None, "exit_time": None},
-            {"pnl": -50.0, "direction": "LONG", "fees": 5, "risk_amount": 100,
+            {"pnl": -50.0, "direction": "LONG", "r_multiple": -0.5, "cost_r": 0.05, "risk_amount": 100,
              "timeframe": "15m", "entry_time": None, "exit_time": None},
-            {"pnl": 75.0, "direction": "SHORT", "fees": 5, "risk_amount": 100,
+            {"pnl": 75.0, "direction": "SHORT", "r_multiple": 0.75, "cost_r": 0.05, "risk_amount": 100,
              "timeframe": "30m", "entry_time": None, "exit_time": None},
         ]
         eq_curve = [

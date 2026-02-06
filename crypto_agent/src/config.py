@@ -25,8 +25,6 @@ DB_PATH = DATA_DIR / "candles.db"
 # ---------------------------------------------------------------------------
 # Exchange
 # ---------------------------------------------------------------------------
-BINANCE_TESTNET_API_KEY = os.environ.get("BINANCE_TESTNET_API_KEY", "")
-BINANCE_TESTNET_SECRET = os.environ.get("BINANCE_TESTNET_SECRET", "")
 BINANCE_API_KEY = os.environ.get("BINANCE_API_KEY", "")
 BINANCE_SECRET = os.environ.get("BINANCE_SECRET", "")
 
@@ -99,6 +97,10 @@ DEFAULT_TP_CONFIG = [
 MAKER_FEE = 0.0002    # 0.02%
 TAKER_FEE = 0.0004    # 0.04%
 SLIPPAGE_EST = 0.0003  # 0.03% estimated slippage
+
+# Flat round-trip cost estimate for backtesting
+# (taker fee + slippage) × 2 sides = (0.04% + 0.03%) × 2 = 0.14%
+ROUND_TRIP_COST_PCT = 0.0014
 
 # ---------------------------------------------------------------------------
 # Logging

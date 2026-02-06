@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.backtest.costs import calculate_entry_cost, calculate_exit_cost, calculate_funding_cost
+from src.backtest.costs import calculate_r_multiple, cost_as_r, estimate_round_trip_cost
 from src.backtest.report import generate_report, print_report, print_tp_optimization_table, save_equity_curve
 from src.backtest.stop_manager import check_stop_hit, check_tp_hit, should_move_stop_to_be
 from src.backtest.tp_optimizer import config_to_tp_list, evaluate_config, get_tp_configs, recommend_best_config
@@ -106,23 +106,29 @@ def run_backtest(
             # Check stop loss
             if check_stop_hit(current_candle, signal.direction, stop):
                 exit_price = stop  # Assume stop fills at stop price
-                fees = calculate_exit_cost(pos.size_usd * pos.remaining_size_pct)
-                pnl = _calculate_pnl(signal.direction, pos.entry_price, exit_price, pos.size_usd * pos.remaining_size_pct) - fees
+                remaining_size = pos.size_usd * pos.remaining_size_pct
+                risk_amount = signal.risk_pct * portfolio.equity
+                raw_r = calculate_r_multiple(signal.direction, pos.entry_price, exit_price, signal.stop_loss)
+                costs_r = cost_as_r(remaining_size, risk_amount)
+                net_r = raw_r - costs_r
+                pnl = net_r * risk_amount
 
                 trade_results.append({
                     "pnl": pnl,
+                    "r_multiple": net_r,
                     "direction": signal.direction,
                     "entry_price": pos.entry_price,
                     "exit_price": exit_price,
+                    "stop_price": signal.stop_loss,
                     "reason": "stop_loss",
                     "timeframe": timeframe,
                     "entry_time": pos.opened_at,
                     "exit_time": current_time,
-                    "fees": fees,
-                    "risk_amount": signal.risk_pct * portfolio.equity,
+                    "cost_r": costs_r,
+                    "risk_amount": risk_amount,
                 })
 
-                portfolio.close_position(pos, exit_price, "stop_loss", fees)
+                portfolio.close_position(pos, exit_price, "stop_loss", abs(pnl) if pnl < 0 else 0)
                 closed_indices.append(idx)
                 continue
 
@@ -132,20 +138,25 @@ def run_backtest(
             for tp in tps:
                 if check_tp_hit(current_candle, signal.direction, tp["price"]):
                     partial_size = pos.size_usd * tp["pct"]
-                    fees = calculate_exit_cost(partial_size)
-                    pnl = _calculate_pnl(signal.direction, pos.entry_price, tp["price"], partial_size) - fees
+                    risk_amount = signal.risk_pct * portfolio.equity * tp["pct"]
+                    raw_r = calculate_r_multiple(signal.direction, pos.entry_price, tp["price"], signal.stop_loss)
+                    costs_r = cost_as_r(partial_size, risk_amount)
+                    net_r = raw_r - costs_r
+                    pnl = net_r * risk_amount
 
                     trade_results.append({
                         "pnl": pnl,
+                        "r_multiple": net_r,
                         "direction": signal.direction,
                         "entry_price": pos.entry_price,
                         "exit_price": tp["price"],
+                        "stop_price": signal.stop_loss,
                         "reason": f"take_profit_{tp['level']}",
                         "timeframe": timeframe,
                         "entry_time": pos.opened_at,
                         "exit_time": current_time,
-                        "fees": fees,
-                        "risk_amount": signal.risk_pct * portfolio.equity * tp["pct"],
+                        "cost_r": costs_r,
+                        "risk_amount": risk_amount,
                     })
 
                     pos.partial_closes.append({"pct": tp["pct"], "price": tp["price"]})
@@ -219,8 +230,7 @@ def run_backtest(
                         logger.debug("Insufficient cash for margin")
                         continue
 
-                    # Open position
-                    entry_fees = calculate_entry_cost(sizing["size_usd"])
+                    # Open position (costs folded into R-multiple at exit)
                     position = Position(
                         symbol=symbol,
                         direction=signal.direction,
@@ -237,7 +247,6 @@ def run_backtest(
                     )
 
                     portfolio.open_position(position)
-                    portfolio.cash -= entry_fees  # Deduct entry fees
 
                     open_positions.append({
                         "position": position,
@@ -264,21 +273,28 @@ def run_backtest(
         signal = pos_data["signal"]
         remaining = pos.remaining_size_pct
         if remaining > 0.01 and pos in portfolio.positions:
-            fees = calculate_exit_cost(pos.size_usd * remaining)
-            pnl = _calculate_pnl(signal.direction, pos.entry_price, last_price, pos.size_usd * remaining) - fees
+            remaining_size = pos.size_usd * remaining
+            risk_amount = signal.risk_pct * initial_equity
+            raw_r = calculate_r_multiple(signal.direction, pos.entry_price, last_price, signal.stop_loss)
+            costs_r = cost_as_r(remaining_size, risk_amount)
+            net_r = raw_r - costs_r
+            pnl = net_r * risk_amount
+
             trade_results.append({
                 "pnl": pnl,
+                "r_multiple": net_r,
                 "direction": signal.direction,
                 "entry_price": pos.entry_price,
                 "exit_price": last_price,
+                "stop_price": signal.stop_loss,
                 "reason": "backtest_end",
                 "timeframe": timeframe,
                 "entry_time": pos.opened_at,
                 "exit_time": candles["timestamp"].iloc[-1],
-                "fees": fees,
-                "risk_amount": signal.risk_pct * initial_equity,
+                "cost_r": costs_r,
+                "risk_amount": risk_amount,
             })
-            portfolio.close_position(pos, last_price, "backtest_end", fees)
+            portfolio.close_position(pos, last_price, "backtest_end", abs(pnl) if pnl < 0 else 0)
 
     stats = {
         "signals_generated": signals_generated,
@@ -337,7 +353,7 @@ def run_tp_optimization(
 
 
 def _calculate_pnl(direction: str, entry: float, exit_price: float, size_usd: float) -> float:
-    """Calculate P&L for a position (before fees)."""
+    """Calculate dollar P&L for a position (before costs). Legacy helper."""
     if direction == "LONG":
         return (exit_price - entry) / entry * size_usd
     else:
