@@ -286,6 +286,12 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
 .div-bear { font-size: 14px; }
 .div-none { color: var(--text-muted); }
 
+/* CHOCH */
+.choch-bull { color: var(--green); font-weight: 700; }
+.choch-bear { color: var(--red); font-weight: 700; }
+.choch-none { color: var(--text-muted); }
+.choch-aligned { background: rgba(88, 166, 255, 0.1); }
+
 /* Loading overlay */
 .loading-overlay {
   position: absolute;
@@ -350,6 +356,8 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
       <button class="filter-btn" data-filter="overbought">RSI ≥ 70</button>
       <button class="filter-btn" data-filter="divergence">Divergence</button>
       <button class="filter-btn" data-filter="rvol">Rel Vol &gt; 2x</button>
+      <button class="filter-btn" data-filter="choch">CHOCH</button>
+      <button class="filter-btn" data-filter="choch-aligned">CHOCH Aligned</button>
     </div>
   </div>
   <div class="status-bar">
@@ -410,6 +418,10 @@ const COLUMNS = [
   { key: 'rsiDaily',     label: 'RSI Daily',        align: 'right' },
   { key: 'div15m',       label: 'Div 15m',          align: 'right' },
   { key: 'div30m',       label: 'Div 30m',          align: 'right' },
+  { key: 'choch15m',     label: 'CHOCH 15m',        align: 'right' },
+  { key: 'choch30m',     label: 'CHOCH 30m',        align: 'right' },
+  { key: 'choch4h',      label: 'CHOCH 4H',         align: 'right' },
+  { key: 'chochDaily',   label: 'CHOCH Daily',      align: 'right' },
   { key: 'fundingRate',  label: 'Funding Rate',     align: 'right' },
   { key: 'openInterest', label: 'OI (USDT)',        align: 'right' },
 ];
@@ -599,6 +611,81 @@ function detectDivergence(candles, rsiSeries) {
   return 'none';
 }
 
+function detectCHOCH(candles) {
+  // Change of Character: structure shift detection
+  // Bullish CHOCH: in a downtrend (lower lows + lower highs), price breaks above last swing high
+  // Bearish CHOCH: in an uptrend (higher highs + higher lows), price breaks below last swing low
+  const len = candles.length;
+  if (len < 10) return 'none';
+
+  // Find swing highs and swing lows (3-bar pivot)
+  const swingHighs = [];
+  const swingLows = [];
+  const lookStart = Math.max(1, len - 60);
+
+  for (let i = lookStart; i < len - 1; i++) {
+    if (candles[i].low < candles[i - 1].low && candles[i].low < candles[i + 1].low) {
+      swingLows.push({ idx: i, price: candles[i].low });
+    }
+    if (candles[i].high > candles[i - 1].high && candles[i].high > candles[i + 1].high) {
+      swingHighs.push({ idx: i, price: candles[i].high });
+    }
+  }
+
+  if (swingHighs.length < 2 || swingLows.length < 2) return 'none';
+
+  const currentClose = candles[len - 1].close;
+  const currentHigh = candles[len - 1].high;
+  const currentLow = candles[len - 1].low;
+
+  // Check for bullish CHOCH: downtrend structure break
+  // Need at least 2 recent swing highs making lower highs (downtrend)
+  // Then current price breaks above the most recent swing high
+  const recentSH = swingHighs.slice(-3);
+  const recentSL = swingLows.slice(-3);
+
+  // Detect downtrend: consecutive lower highs
+  let isDowntrend = false;
+  for (let i = recentSH.length - 1; i >= 1; i--) {
+    if (recentSH[i].price < recentSH[i - 1].price) {
+      isDowntrend = true;
+      break;
+    }
+  }
+
+  if (isDowntrend) {
+    const lastSwingHigh = recentSH[recentSH.length - 1];
+    // Check if any of the last few candles broke above it (recency window)
+    const recencyWindow = Math.min(5, len - lastSwingHigh.idx);
+    for (let j = len - recencyWindow; j < len; j++) {
+      if (candles[j].close > lastSwingHigh.price) {
+        return 'bull';
+      }
+    }
+  }
+
+  // Detect uptrend: consecutive higher lows
+  let isUptrend = false;
+  for (let i = recentSL.length - 1; i >= 1; i--) {
+    if (recentSL[i].price > recentSL[i - 1].price) {
+      isUptrend = true;
+      break;
+    }
+  }
+
+  if (isUptrend) {
+    const lastSwingLow = recentSL[recentSL.length - 1];
+    const recencyWindow = Math.min(5, len - lastSwingLow.idx);
+    for (let j = len - recencyWindow; j < len; j++) {
+      if (candles[j].close < lastSwingLow.price) {
+        return 'bear';
+      }
+    }
+  }
+
+  return 'none';
+}
+
 // ============================================================
 // Number formatting
 // ============================================================
@@ -667,6 +754,12 @@ function divHTML(v) {
   if (v === 'bull') return '<span class="div-bull">\u{1F7E2}</span>';
   if (v === 'bear') return '<span class="div-bear">\u{1F534}</span>';
   return '<span class="div-none">\u2014</span>';
+}
+
+function chochHTML(v) {
+  if (v === 'bull') return '<span class="choch-bull">BUL</span>';
+  if (v === 'bear') return '<span class="choch-bear">BER</span>';
+  return '<span class="choch-none">\u2014</span>';
 }
 
 function fundingColor(r) {
@@ -756,6 +849,19 @@ function getSortedFiltered() {
   if (activeFilters.has('rvol')) {
     arr = arr.filter(d => d.relVolume !== null && d.relVolume > 2);
   }
+  if (activeFilters.has('choch')) {
+    arr = arr.filter(d =>
+      d.choch15m !== 'none' || d.choch30m !== 'none' ||
+      d.choch4h !== 'none' || d.chochDaily !== 'none'
+    );
+  }
+  if (activeFilters.has('choch-aligned')) {
+    // At least 2 timeframes showing the same CHOCH direction
+    arr = arr.filter(d => {
+      const vals = [d.choch15m, d.choch30m, d.choch4h, d.chochDaily].filter(v => v !== 'none');
+      return vals.length >= 2 && vals.every(v => v === vals[0]);
+    });
+  }
 
   // Sort
   arr.sort((a, b) => {
@@ -765,8 +871,10 @@ function getSortedFiltered() {
     if (vb === null || vb === undefined) vb = sortDir === 1 ? Infinity : -Infinity;
     // String sort for symbol
     if (sortKey === 'symbol') return sortDir * ('' + va).localeCompare('' + vb);
-    // Divergence sort: bull=1, bear=2, none=0
-    if (sortKey === 'div15m' || sortKey === 'div30m') {
+    // Divergence / CHOCH sort: bull=2, bear=1, none=0
+    if (sortKey === 'div15m' || sortKey === 'div30m' ||
+        sortKey === 'choch15m' || sortKey === 'choch30m' ||
+        sortKey === 'choch4h' || sortKey === 'chochDaily') {
       const order = { bull: 2, bear: 1, none: 0 };
       va = order[va] || 0;
       vb = order[vb] || 0;
@@ -844,6 +952,19 @@ function renderTable() {
     ['div15m', 'div30m'].forEach(k => {
       td = document.createElement('td');
       td.innerHTML = divHTML(d[k]);
+      tr.appendChild(td);
+    });
+
+    // CHOCH columns
+    const chochKeys = ['choch15m', 'choch30m', 'choch4h', 'chochDaily'];
+    const chochValues = chochKeys.map(k => d[k]);
+    const chochNonNone = chochValues.filter(v => v !== 'none' && v !== undefined);
+    const allAligned = chochNonNone.length >= 2 && chochNonNone.every(v => v === chochNonNone[0]);
+
+    chochKeys.forEach(k => {
+      td = document.createElement('td');
+      td.innerHTML = chochHTML(d[k]);
+      if (allAligned && d[k] !== 'none') td.classList.add('choch-aligned');
       tr.appendChild(td);
     });
 
@@ -944,6 +1065,10 @@ async function loadTickers() {
       rsiDaily: existing.rsiDaily || null,
       div15m: existing.div15m || 'none',
       div30m: existing.div30m || 'none',
+      choch15m: existing.choch15m || 'none',
+      choch30m: existing.choch30m || 'none',
+      choch4h: existing.choch4h || 'none',
+      chochDaily: existing.chochDaily || 'none',
     };
   });
 
@@ -960,10 +1085,10 @@ async function loadTickers() {
 async function loadKlineDataForSymbol(symbol) {
   // Intervals: 15 = 15m, 30 = 30m, 240 = 4h, D = daily
   const intervals = [
-    { key: '15', rsiKey: 'rsi15m', divKey: 'div15m' },
-    { key: '30', rsiKey: 'rsi30m', divKey: 'div30m' },
-    { key: '240', rsiKey: 'rsi4h', divKey: null },
-    { key: 'D', rsiKey: 'rsiDaily', divKey: null },
+    { key: '15', rsiKey: 'rsi15m', divKey: 'div15m', chochKey: 'choch15m' },
+    { key: '30', rsiKey: 'rsi30m', divKey: 'div30m', chochKey: 'choch30m' },
+    { key: '240', rsiKey: 'rsi4h', divKey: null, chochKey: 'choch4h' },
+    { key: 'D', rsiKey: 'rsiDaily', divKey: null, chochKey: 'chochDaily' },
   ];
 
   const inst = instruments[symbol];
@@ -975,6 +1100,7 @@ async function loadKlineDataForSymbol(symbol) {
       if (!candles || candles.length < RSI_PERIOD + 2) {
         inst[iv.rsiKey] = null;
         if (iv.divKey) inst[iv.divKey] = 'none';
+        inst[iv.chochKey] = 'none';
         continue;
       }
 
@@ -985,13 +1111,16 @@ async function loadKlineDataForSymbol(symbol) {
 
       inst[iv.rsiKey] = computeRSI(closes);
 
+      const candleObjs = candles.map((c, i) => ({
+        high: highs[i], low: lows[i], close: closes[i]
+      }));
+
       if (iv.divKey) {
         const rsiSeries = computeRSISeries(closes);
-        const candleObjs = candles.map((c, i) => ({
-          high: highs[i], low: lows[i], close: closes[i]
-        }));
         inst[iv.divKey] = detectDivergence(candleObjs, rsiSeries);
       }
+
+      inst[iv.chochKey] = detectCHOCH(candleObjs);
 
       // Use daily klines for relative volume
       if (iv.key === 'D') {
