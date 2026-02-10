@@ -228,6 +228,22 @@ thead th .sort-arrow {
 
 thead th.sort-active .sort-arrow { opacity: 1; color: var(--blue); }
 
+.sort-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  margin-left: 4px;
+  vertical-align: middle;
+  font-family: var(--font-mono);
+}
+
 tbody tr {
   border-bottom: 1px solid var(--border-color);
   transition: background 0.15s;
@@ -430,8 +446,7 @@ const COLUMNS = [
 
 // State
 let instruments = {};          // symbol -> data object
-let sortKey = 'score';
-let sortDir = -1;              // -1 = desc, 1 = asc
+let sortLevels = [{ key: 'score', dir: -1 }]; // array of {key, dir} for multi-column sort
 let activeFilters = new Set();
 let searchText = '';
 let refreshTimer = null;
@@ -899,19 +914,41 @@ function buildHeader() {
     const th = document.createElement('th');
     th.dataset.key = col.key;
     th.style.textAlign = col.align;
-    th.innerHTML = col.label + ' <span class="sort-arrow">\u25B2</span>';
-    if (col.key === sortKey) {
-      th.classList.add('sort-active');
-      th.querySelector('.sort-arrow').textContent = sortDir === 1 ? '\u25B2' : '\u25BC';
+
+    const levelIdx = sortLevels.findIndex(s => s.key === col.key);
+    const isActive = levelIdx >= 0;
+    const arrow = isActive ? (sortLevels[levelIdx].dir === 1 ? '\u25B2' : '\u25BC') : '\u25B2';
+
+    let labelHTML = col.label;
+    if (isActive && sortLevels.length > 1) {
+      labelHTML += '<span class="sort-badge">' + (levelIdx + 1) + '</span>';
     }
-    th.addEventListener('click', () => onSort(col.key));
+    th.innerHTML = labelHTML + ' <span class="sort-arrow">' + arrow + '</span>';
+
+    if (isActive) th.classList.add('sort-active');
+    th.addEventListener('click', (e) => onSort(col.key, e.shiftKey));
     tr.appendChild(th);
   });
 }
 
-function onSort(key) {
-  if (sortKey === key) sortDir *= -1;
-  else { sortKey = key; sortDir = -1; }
+function onSort(key, addLevel) {
+  if (addLevel) {
+    // Shift+click: add or toggle this column in multi-sort
+    const idx = sortLevels.findIndex(s => s.key === key);
+    if (idx >= 0) {
+      // Already in list — toggle direction, remove if clicked a third time while already toggled
+      sortLevels[idx].dir *= -1;
+    } else {
+      sortLevels.push({ key, dir: -1 });
+    }
+  } else {
+    // Normal click: single-column sort (replace all)
+    if (sortLevels.length === 1 && sortLevels[0].key === key) {
+      sortLevels[0].dir *= -1;
+    } else {
+      sortLevels = [{ key, dir: -1 }];
+    }
+  }
   buildHeader();
   renderTable();
 }
@@ -968,47 +1005,51 @@ function getSortedFiltered() {
   // Compute score for sorting and display
   arr.forEach(d => { d._score = computeScore(d); });
 
-  // Sort
-  arr.sort((a, b) => {
-    if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
+  // Single-key compare helper
+  function compareByKey(a, b, key, dir) {
+    if (key === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
 
-    // Condensed RSI 15/30m: sort by most extreme of the two
-    if (sortKey === 'rsiLtf') {
+    if (key === 'rsiLtf') {
       const ea = [a.rsi15m, a.rsi30m].filter(v => v !== null && v !== undefined);
       const eb = [b.rsi15m, b.rsi30m].filter(v => v !== null && v !== undefined);
       const va = ea.length > 0 ? Math.max(...ea.map(r => Math.abs(r - 50))) : -1;
       const vb = eb.length > 0 ? Math.max(...eb.map(r => Math.abs(r - 50))) : -1;
-      return sortDir * (va - vb);
+      return dir * (va - vb);
     }
 
-    // Condensed RSI HTF: sort by most extreme of 4H/Daily
-    if (sortKey === 'rsiHtf') {
+    if (key === 'rsiHtf') {
       const ra = getMostExtremeRSI_HTF(a);
       const rb = getMostExtremeRSI_HTF(b);
       const va = ra.val !== null ? Math.abs(ra.val - 50) : -1;
       const vb = rb.val !== null ? Math.abs(rb.val - 50) : -1;
-      return sortDir * (va - vb);
+      return dir * (va - vb);
     }
 
-    // CHOCH condensed: sort by count + alignment bonus
-    if (sortKey === 'choch') {
+    if (key === 'choch') {
       const ca = getChochSummary(a);
       const cb = getChochSummary(b);
       const va = ca.count + (ca.aligned ? 0.5 : 0);
       const vb = cb.count + (cb.aligned ? 0.5 : 0);
-      return sortDir * (va - vb);
+      return dir * (va - vb);
     }
 
-    // Score
-    if (sortKey === 'score') return sortDir * (a._score - b._score);
+    if (key === 'score') return dir * (a._score - b._score);
 
-    // Default numeric sort
-    let va = a[sortKey], vb = b[sortKey];
-    if (va === null || va === undefined) va = sortDir === 1 ? Infinity : -Infinity;
-    if (vb === null || vb === undefined) vb = sortDir === 1 ? Infinity : -Infinity;
+    let va = a[key], vb = b[key];
+    if (va === null || va === undefined) va = dir === 1 ? Infinity : -Infinity;
+    if (vb === null || vb === undefined) vb = dir === 1 ? Infinity : -Infinity;
     if (typeof va === 'string') va = parseFloat(va) || 0;
     if (typeof vb === 'string') vb = parseFloat(vb) || 0;
-    return sortDir * (va - vb);
+    return dir * (va - vb);
+  }
+
+  // Multi-column sort: chain through each level
+  arr.sort((a, b) => {
+    for (const level of sortLevels) {
+      const cmp = compareByKey(a, b, level.key, level.dir);
+      if (cmp !== 0) return cmp;
+    }
+    return 0;
   });
 
   return arr;
