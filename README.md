@@ -30,7 +30,9 @@ Click filter buttons to narrow results (combine multiple):
 Type in the search bar to filter by symbol name.
 
 ### 5. Sort by Any Column
-Click a column header to sort ascending/descending.
+- **Click** a column header to sort by that column (ascending/descending toggle)
+- **Shift+Click** additional columns to add secondary sort levels (e.g. sort by CHOCH first, then by Score within ties)
+- Numbered badges show your sort priority when multi-sorting
 
 ### 6. Confirm on Chart
 Use the data as a starting point — always check the actual chart before trading.
