@@ -1,72 +1,89 @@
-# Bybit Futures Screener — Quick Guide
+# Bybit Futures Screener
 
-**What is this?**
-A live scanner that checks every USDT perpetual contract on Bybit and highlights the ones worth looking at. It runs in your browser — no install, no login.
+A live browser-based scanner for every USDT perpetual on Bybit. No install, no login.
 
 **Link:** https://mellomesh.github.io/Test/
 
 ---
 
-## Columns explained
+## How to Use (Step by Step)
 
-| Column | What it means |
+### 1. Open & Wait
+Go to the link above. First load takes ~2 minutes while it pulls data for all contracts. After that, it caches and loads instantly.
+
+### 2. Scan the Table
+Rows are sorted by **Score** (highest first). Top rows = most signals firing at once.
+
+### 3. Filter What You Care About
+Click filter buttons to narrow results (combine multiple):
+
+| Button | Shows |
 |---|---|
-| **Symbol** | The trading pair |
+| **RSI ≤ 30** | Oversold coins (bounce candidates) |
+| **RSI ≥ 70** | Overbought coins (pullback candidates) |
+| **Divergence** | Price vs RSI disagree (reversal signal) |
+| **CHOCH** | Market structure shift on any timeframe |
+| **CHOCH Aligned** | Structure shift on 2+ timeframes same direction |
+| **Rel Vol > 2x** | Volume is 2x+ above 20-day average |
+
+### 4. Search a Specific Coin
+Type in the search bar to filter by symbol name.
+
+### 5. Sort by Any Column
+Click a column header to sort ascending/descending.
+
+### 6. Confirm on Chart
+Use the data as a starting point — always check the actual chart before trading.
+
+---
+
+## Reading the Columns
+
+| Column | What It Shows |
+|---|---|
+| **Symbol** | Trading pair |
 | **Price** | Current price |
-| **24H Chg%** | How much it moved in 24 hours. Green = up, red = down |
-| **24H Vol** | Total dollar volume traded in 24 hours |
-| **Rel Vol** | How today's volume compares to the 20-day average. Green 2.0x = double normal volume |
-| **RSI 15/30m** | Two RSI values (15-minute / 30-minute) — see details below |
-| **RSI HTF** | The most notable RSI from the 4-hour or daily chart, with a label showing which one |
-| **CHOCH** | Change of Character — market structure is shifting. "BUL 3/4" = bullish shift on 3 of 4 timeframes. Blue highlight = all timeframes agree |
-| **Score** | A single number combining all signals. Higher = more reasons to look at this chart |
-| **Funding** | Funding rate. Green = shorts paying longs. Red = longs paying shorts |
-| **OI** | Open interest in dollar terms |
+| **24H Chg%** | 24h price change (green = up, red = down) |
+| **24H Vol** | 24h dollar volume |
+| **Rel Vol** | Volume vs 20-day average (green 2.0x = double normal) |
+| **RSI 15/30m** | 15-min and 30-min RSI values + divergence dots |
+| **RSI HTF** | Most notable RSI from 4H or Daily chart |
+| **CHOCH** | Change of Character — e.g. "BUL 3/4" = bullish on 3 of 4 timeframes |
+| **Score** | Combined signal strength (higher = more confluence) |
+| **Funding** | Funding rate (green = shorts pay longs, red = longs pay shorts) |
+| **OI** | Open interest in dollars |
 
 ---
 
-## Reading the RSI 15/30m column
+## RSI Column Quick Reference
 
-This column packs two pieces of information: **RSI level** and **divergence**.
+**Number color = RSI level:**
+- Green = oversold (≤ 30)
+- White = neutral (30-60)
+- Orange = warming up (60-70)
+- Red = overbought (≥ 70)
 
-**The number color tells you the RSI level:**
-- **Green number** = oversold (RSI ≤ 30) — price may be due for a bounce
-- **Orange number** = getting overbought (RSI 60-70)
-- **Red number** = overbought (RSI ≥ 70) — price may be due for a pullback
-- **White number** = neutral (RSI 30-60)
-
-**The colored dot next to a number means divergence is detected:**
-- **Green dot** = bullish divergence — price is making lower lows but RSI is making higher lows. This is a reversal signal suggesting the selling is weakening and price may bounce up
-- **Red dot** = bearish divergence — price is making higher highs but RSI is making lower highs. This is a reversal signal suggesting the buying is weakening and price may drop
-- **No dot** = no divergence detected
-
-**Example:** `40.4🟢 / 37.8` means:
-- 15m RSI is 40.4 (neutral) **with bullish divergence** (green dot)
-- 30m RSI is 37.8 (neutral) with no divergence
-
-The dots and number colors are independent — you can have a neutral RSI number with a divergence dot, or an extreme RSI number with no dot.
+**Dot next to number = divergence:**
+- Green dot = bullish divergence (price lower low, RSI higher low — selling weakening)
+- Red dot = bearish divergence (price higher high, RSI lower high — buying weakening)
+- No dot = no divergence
 
 ---
 
-## How to use it
+## Score Breakdown
 
-1. **Open the link and wait** — first load takes a couple minutes while it scans all contracts
-2. **Look at the top rows** — sorted by Score, so the most interesting setups are at the top
-3. **Use the filter buttons** to narrow down:
-   - **RSI ≤ 30** — oversold coins (long candidates)
-   - **RSI ≥ 70** — overbought coins (short candidates)
-   - **Divergence** — price and RSI disagree (reversal signal)
-   - **CHOCH Aligned** — structure shifting on multiple timeframes
-   - **Rel Vol > 2x** — unusual volume activity
-4. **Search** for a specific coin using the search bar
-5. **Click any column header** to sort by that column
-6. **Open the chart** on TradingView or Bybit to confirm before trading
+| Component | Max Points |
+|---|---|
+| RSI extremeness (any timeframe) | 25 |
+| Divergence (15m + 30m) | 30 |
+| CHOCH signals + alignment bonus | 50 |
+| Relative volume > 2x | 15 |
 
 ---
 
-## Tips
+## Good to Know
 
-- The page auto-refreshes every 60 seconds
-- Next time you visit, it loads instantly from cache
-- A high Score doesn't mean "trade this" — it means "look at this chart"
-- Best setups usually combine: extreme RSI + divergence + CHOCH + high volume
+- Auto-refreshes every 60 seconds
+- Data is cached — revisits load instantly
+- High score = "look at this chart", not "trade this"
+- Best setups: extreme RSI + divergence + CHOCH aligned + high volume
