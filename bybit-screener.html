@@ -394,6 +394,8 @@ const RSI_PERIOD = 14;
 const KLINE_LIMIT = 200;
 const DIV_LOOKBACK = 24;
 const DAILY_KLINE_LIMIT = 30;      // enough for 20-day avg volume
+const CACHE_KEY = 'bybit_screener_cache';
+const CACHE_TS_KEY = 'bybit_screener_cache_ts';
 
 // Column definitions
 const COLUMNS = [
@@ -424,6 +426,40 @@ let nextRefreshAt = 0;
 let isRefreshing = false;
 let previousPrices = {};       // for flash detection
 let rsiAbortController = null;
+
+// ============================================================
+// LocalStorage cache
+// ============================================================
+
+function saveCache() {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(instruments));
+    localStorage.setItem(CACHE_TS_KEY, String(Date.now()));
+  } catch (e) {
+    console.warn('Cache save failed:', e.message);
+  }
+}
+
+function loadCache() {
+  try {
+    const data = localStorage.getItem(CACHE_KEY);
+    const ts = localStorage.getItem(CACHE_TS_KEY);
+    if (!data || !ts) return false;
+    const parsed = JSON.parse(data);
+    if (!parsed || typeof parsed !== 'object' || Object.keys(parsed).length === 0) return false;
+    instruments = parsed;
+    const age = Date.now() - parseInt(ts, 10);
+    const ageMin = Math.round(age / 60000);
+    const ageStr = ageMin < 60 ? ageMin + 'm ago' : Math.round(ageMin / 60) + 'h ago';
+    setStatus('Loaded from cache (' + ageStr + ') — refreshing...', true);
+    updateInstrumentCount();
+    renderTable();
+    return true;
+  } catch (e) {
+    console.warn('Cache load failed:', e.message);
+    return false;
+  }
+}
 
 // ============================================================
 // API helpers
@@ -1002,6 +1038,7 @@ async function loadAllKlineData(signal) {
 
   setRSIProgress(-1);
   setProgress(-1);
+  saveCache();
 }
 
 async function fullRefresh() {
@@ -1060,12 +1097,22 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 buildHeader();
 
 (async function init() {
+  // Try loading cached data first for instant display
+  const hadCache = loadCache();
+  if (hadCache) {
+    document.getElementById('loadingOverlay').classList.add('hidden');
+  }
+
   try {
     await fullRefresh();
     document.getElementById('loadingOverlay').classList.add('hidden');
   } catch (e) {
-    document.getElementById('loadingOverlay').innerHTML =
-      '<span style="color:var(--red)">Failed to load data: ' + e.message + '</span>';
+    if (!hadCache) {
+      document.getElementById('loadingOverlay').innerHTML =
+        '<span style="color:var(--red)">Failed to load data: ' + e.message + '</span>';
+    } else {
+      setStatus('Refresh failed — showing cached data', false);
+    }
   }
   // Start auto-refresh
   refreshTimer = setInterval(() => fullRefresh(), REFRESH_INTERVAL);
