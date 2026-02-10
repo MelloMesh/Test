@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bybit USDT Perpetual Screener</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --bg-hover: #1c2333;
+  --border-color: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #484f58;
+  --green: #3fb950;
+  --green-light: #56d364;
+  --green-dim: #1a4731;
+  --red: #f85149;
+  --red-light: #ff7b72;
+  --red-dim: #5d1a1a;
+  --yellow: #d29922;
+  --yellow-dim: #4b3a12;
+  --blue: #58a6ff;
+  --orange: #d18616;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* Header */
+.header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  z-index: 100;
+}
+
+.header-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+}
+
+.header-title span { color: var(--yellow); }
+
+.search-box {
+  position: relative;
+  flex: 0 0 220px;
+}
+
+.search-box input {
+  width: 100%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 12px 6px 32px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-box input:focus { border-color: var(--blue); }
+
+.search-box::before {
+  content: '\1F50D';
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 5px 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+}
+
+.filter-btn:hover { border-color: var(--text-muted); color: var(--text-primary); }
+
+.filter-btn.active {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+/* Status Bar */
+.status-bar {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 6px 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.status-item { display: flex; align-items: center; gap: 6px; }
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.status-dot.loading { background: var(--yellow); animation: pulse-dot 0.5s ease-in-out infinite; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.progress-bar-container {
+  flex: 1;
+  max-width: 300px;
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+  display: none;
+}
+
+.progress-bar-container.active { display: block; }
+
+.progress-bar {
+  height: 100%;
+  background: var(--blue);
+  border-radius: 2px;
+  transition: width 0.3s;
+  width: 0%;
+}
+
+/* Table Container */
+.table-container {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  height: calc(100vh - 100px);
+}
+
+/* Table */
+table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+thead th {
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--border-color);
+  padding: 8px 14px;
+  text-align: right;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  position: relative;
+  transition: color 0.2s;
+}
+
+thead th:hover { color: var(--text-primary); }
+
+thead th:first-child {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  z-index: 11;
+  background: var(--bg-secondary);
+}
+
+thead th .sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: 0.3;
+}
+
+thead th.sort-active .sort-arrow { opacity: 1; color: var(--blue); }
+
+tbody tr {
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.15s;
+}
+
+tbody tr:hover { background: var(--bg-hover); }
+
+tbody tr.flash-update {
+  animation: row-flash 1s ease-out;
+}
+
+@keyframes row-flash {
+  0% { background: rgba(88, 166, 255, 0.15); }
+  100% { background: transparent; }
+}
+
+tbody td {
+  padding: 6px 14px;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+tbody td:first-child {
+  text-align: left;
+  font-weight: 600;
+  position: sticky;
+  left: 0;
+  background: var(--bg-primary);
+  z-index: 5;
+  color: var(--blue);
+}
+
+tbody tr:hover td:first-child { background: var(--bg-hover); }
+
+/* RSI colors */
+.rsi-oversold { color: var(--green); font-weight: 600; }
+.rsi-low { color: var(--green-light); }
+.rsi-neutral { color: var(--text-primary); }
+.rsi-high { color: var(--orange); }
+.rsi-overbought { color: var(--red); font-weight: 600; }
+
+/* Relative volume */
+.rvol-high { color: var(--green); font-weight: 600; }
+.rvol-medium { color: var(--yellow); }
+.rvol-normal { color: var(--text-primary); }
+
+/* Change percent */
+.change-positive { color: var(--green); }
+.change-negative { color: var(--red); }
+
+/* Funding rate colors are set inline with opacity */
+
+/* Divergence */
+.div-bull { font-size: 14px; }
+.div-bear { font-size: 14px; }
+.div-none { color: var(--text-muted); }
+
+/* Loading overlay */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(13, 17, 23, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.loading-overlay.hidden { display: none; }
+
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 10px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Layout wrapper */
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+::-webkit-scrollbar-corner { background: var(--bg-primary); }
+</style>
+</head>
+<body>
+<div class="app-layout">
+  <div class="header">
+    <div class="header-title"><span>BYBIT</span> USDT Perp Screener</div>
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Filter symbol..." spellcheck="false" />
+    </div>
+    <div class="filter-buttons">
+      <button class="filter-btn" data-filter="oversold">RSI ≤ 30</button>
+      <button class="filter-btn" data-filter="overbought">RSI ≥ 70</button>
+      <button class="filter-btn" data-filter="divergence">Divergence</button>
+      <button class="filter-btn" data-filter="rvol">Rel Vol &gt; 2x</button>
+    </div>
+  </div>
+  <div class="status-bar">
+    <div class="status-item">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Initializing...</span>
+    </div>
+    <div class="status-item">Instruments: <span id="instrumentCount">0</span></div>
+    <div class="status-item">Last refresh: <span id="lastRefresh">—</span></div>
+    <div class="status-item">Next refresh: <span id="nextRefresh">—</span></div>
+    <div class="progress-bar-container" id="progressBarContainer">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="status-item" id="rsiProgress" style="display:none">
+      <span id="rsiProgressText"></span>
+    </div>
+  </div>
+  <div class="table-container" id="tableContainer">
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="spinner"></div>
+      Loading market data...
+    </div>
+    <table id="mainTable">
+      <thead>
+        <tr id="headerRow"></tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Bybit USDT Perpetual Screener — Vanilla JS
+// ============================================================
+
+const BYBIT_BASE = 'https://api.bybit.com';
+const REFRESH_INTERVAL = 60000;
+const BATCH_SIZE = 3;
+const BATCH_DELAY = 200;           // ms between batches (keeps us well under 10 req/s)
+const RSI_PERIOD = 14;
+const KLINE_LIMIT = 200;
+const DIV_LOOKBACK = 24;
+const DAILY_KLINE_LIMIT = 30;      // enough for 20-day avg volume
+
+// Column definitions
+const COLUMNS = [
+  { key: 'symbol',       label: 'Symbol',          align: 'left'  },
+  { key: 'price',        label: 'Price',           align: 'right' },
+  { key: 'change24h',    label: '24H Chg %',       align: 'right' },
+  { key: 'volume24h',    label: '24H Vol (USDT)',   align: 'right' },
+  { key: 'relVolume',    label: 'Rel Vol',          align: 'right' },
+  { key: 'rsi15m',       label: 'RSI 15m',          align: 'right' },
+  { key: 'rsi30m',       label: 'RSI 30m',          align: 'right' },
+  { key: 'rsi4h',        label: 'RSI 4H',           align: 'right' },
+  { key: 'rsiDaily',     label: 'RSI Daily',        align: 'right' },
+  { key: 'div15m',       label: 'Div 15m',          align: 'right' },
+  { key: 'div30m',       label: 'Div 30m',          align: 'right' },
+  { key: 'fundingRate',  label: 'Funding Rate',     align: 'right' },
+  { key: 'openInterest', label: 'OI (USDT)',        align: 'right' },
+];
+
+// State
+let instruments = {};          // symbol -> data object
+let sortKey = 'volume24h';
+let sortDir = -1;              // -1 = desc, 1 = asc
+let activeFilters = new Set();
+let searchText = '';
+let refreshTimer = null;
+let countdownTimer = null;
+let nextRefreshAt = 0;
+let isRefreshing = false;
+let previousPrices = {};       // for flash detection
+let rsiAbortController = null;
+
+// ============================================================
+// API helpers
+// ============================================================
+
+async function apiFetch(path) {
+  const resp = await fetch(BYBIT_BASE + path);
+  if (!resp.ok) throw new Error('API error: ' + resp.status);
+  const json = await resp.json();
+  if (json.retCode !== 0) throw new Error('Bybit error: ' + json.retMsg);
+  return json.result;
+}
+
+// ============================================================
+// Data fetching
+// ============================================================
+
+async function fetchTickers() {
+  const result = await apiFetch('/v5/market/tickers?category=linear');
+  const list = result.list || [];
+  return list.filter(t => t.symbol.endsWith('USDT'));
+}
+
+async function fetchKline(symbol, interval, limit) {
+  const result = await apiFetch(
+    '/v5/market/kline?category=linear&symbol=' + symbol +
+    '&interval=' + interval + '&limit=' + limit
+  );
+  // Bybit returns newest first, reverse to chronological
+  return (result.list || []).reverse();
+}
+
+// ============================================================
+// Technical calculations
+// ============================================================
+
+function computeRSI(closes) {
+  if (closes.length < RSI_PERIOD + 1) return null;
+
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= RSI_PERIOD; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) gains += diff;
+    else losses -= diff;
+  }
+  let avgGain = gains / RSI_PERIOD;
+  let avgLoss = losses / RSI_PERIOD;
+
+  for (let i = RSI_PERIOD + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (RSI_PERIOD - 1) + gain) / RSI_PERIOD;
+    avgLoss = (avgLoss * (RSI_PERIOD - 1) + loss) / RSI_PERIOD;
+  }
+
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+function computeRSISeries(closes) {
+  // returns array of RSI values aligned with closes (null where not enough data)
+  const rsiArr = new Array(closes.length).fill(null);
+  if (closes.length < RSI_PERIOD + 1) return rsiArr;
+
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= RSI_PERIOD; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) gains += diff;
+    else losses -= diff;
+  }
+  let avgGain = gains / RSI_PERIOD;
+  let avgLoss = losses / RSI_PERIOD;
+
+  if (avgLoss === 0) rsiArr[RSI_PERIOD] = 100;
+  else {
+    const rs = avgGain / avgLoss;
+    rsiArr[RSI_PERIOD] = 100 - 100 / (1 + rs);
+  }
+
+  for (let i = RSI_PERIOD + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (RSI_PERIOD - 1) + gain) / RSI_PERIOD;
+    avgLoss = (avgLoss * (RSI_PERIOD - 1) + loss) / RSI_PERIOD;
+    if (avgLoss === 0) rsiArr[i] = 100;
+    else {
+      const rs = avgGain / avgLoss;
+      rsiArr[i] = 100 - 100 / (1 + rs);
+    }
+  }
+  return rsiArr;
+}
+
+function detectDivergence(candles, rsiSeries) {
+  // candles: array of {high, low, close}; rsiSeries aligned
+  const len = candles.length;
+  if (len < 5) return 'none';
+
+  const lookStart = Math.max(1, len - DIV_LOOKBACK);
+  const lookEnd = len - 2; // need bar after for pivot confirmation
+
+  // Find swing lows and highs within lookback
+  const swingLows = [];
+  const swingHighs = [];
+
+  for (let i = lookStart; i <= lookEnd; i++) {
+    if (rsiSeries[i] === null) continue;
+    if (candles[i].low < candles[i - 1].low && candles[i].low < candles[i + 1].low) {
+      swingLows.push({ idx: i, price: candles[i].low, rsi: rsiSeries[i] });
+    }
+    if (candles[i].high > candles[i - 1].high && candles[i].high > candles[i + 1].high) {
+      swingHighs.push({ idx: i, price: candles[i].high, rsi: rsiSeries[i] });
+    }
+  }
+
+  // Check bullish divergence (two most recent swing lows)
+  if (swingLows.length >= 2) {
+    const recent = swingLows[swingLows.length - 1];
+    const prev = swingLows[swingLows.length - 2];
+    if (recent.price < prev.price && recent.rsi > prev.rsi) {
+      return 'bull';
+    }
+  }
+
+  // Check bearish divergence (two most recent swing highs)
+  if (swingHighs.length >= 2) {
+    const recent = swingHighs[swingHighs.length - 1];
+    const prev = swingHighs[swingHighs.length - 2];
+    if (recent.price > prev.price && recent.rsi < prev.rsi) {
+      return 'bear';
+    }
+  }
+
+  return 'none';
+}
+
+// ============================================================
+// Number formatting
+// ============================================================
+
+function formatPrice(p) {
+  const n = parseFloat(p);
+  if (isNaN(n)) return '—';
+  if (n >= 1000) return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n >= 1) return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  // small prices
+  const s = n.toFixed(8);
+  // trim trailing zeros but keep at least 4 decimals
+  const parts = s.split('.');
+  let dec = parts[1];
+  while (dec.length > 4 && dec.endsWith('0')) dec = dec.slice(0, -1);
+  return parts[0] + '.' + dec;
+}
+
+function formatVolume(v) {
+  const n = parseFloat(v);
+  if (isNaN(n)) return '—';
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toFixed(0);
+}
+
+function formatPct(p) {
+  const n = parseFloat(p);
+  if (isNaN(n)) return '—';
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+function formatRSI(v) {
+  if (v === null || v === undefined) return '—';
+  return v.toFixed(1);
+}
+
+function formatFundingRate(r) {
+  const n = parseFloat(r);
+  if (isNaN(n)) return '—';
+  return (n >= 0 ? '+' : '') + (n * 100).toFixed(4) + '%';
+}
+
+// ============================================================
+// Cell rendering helpers
+// ============================================================
+
+function rsiClass(v) {
+  if (v === null || v === undefined) return 'rsi-neutral';
+  if (v <= 30) return 'rsi-oversold';
+  if (v <= 40) return 'rsi-low';
+  if (v <= 60) return 'rsi-neutral';
+  if (v <= 70) return 'rsi-high';
+  return 'rsi-overbought';
+}
+
+function rvolClass(v) {
+  if (v === null || v === undefined) return 'rvol-normal';
+  if (v > 1.5) return 'rvol-high';
+  if (v >= 1.2) return 'rvol-medium';
+  return 'rvol-normal';
+}
+
+function divHTML(v) {
+  if (v === 'bull') return '<span class="div-bull">\u{1F7E2}</span>';
+  if (v === 'bear') return '<span class="div-bear">\u{1F534}</span>';
+  return '<span class="div-none">\u2014</span>';
+}
+
+function fundingColor(r) {
+  const n = parseFloat(r);
+  if (isNaN(n)) return '';
+  const absVal = Math.abs(n);
+  // Scale intensity: typical funding is -0.01% to 0.03%, extreme can be 0.1%+
+  const intensity = Math.min(1, absVal / 0.001);
+  if (n < 0) {
+    // Negative = shorts pay longs = green
+    const g = Math.round(100 + 155 * intensity);
+    return 'color: rgb(50,' + g + ',80)';
+  } else if (n > 0) {
+    // Positive = longs pay shorts = red
+    const r2 = Math.round(150 + 105 * intensity);
+    return 'color: rgb(' + r2 + ',70,70)';
+  }
+  return '';
+}
+
+function changeClass(v) {
+  const n = parseFloat(v);
+  if (isNaN(n)) return '';
+  return n >= 0 ? 'change-positive' : 'change-negative';
+}
+
+// ============================================================
+// Table building
+// ============================================================
+
+function buildHeader() {
+  const tr = document.getElementById('headerRow');
+  tr.innerHTML = '';
+  COLUMNS.forEach(col => {
+    const th = document.createElement('th');
+    th.dataset.key = col.key;
+    th.style.textAlign = col.align;
+    th.innerHTML = col.label + ' <span class="sort-arrow">\u25B2</span>';
+    if (col.key === sortKey) {
+      th.classList.add('sort-active');
+      th.querySelector('.sort-arrow').textContent = sortDir === 1 ? '\u25B2' : '\u25BC';
+    }
+    th.addEventListener('click', () => onSort(col.key));
+    tr.appendChild(th);
+  });
+}
+
+function onSort(key) {
+  if (sortKey === key) sortDir *= -1;
+  else { sortKey = key; sortDir = -1; }
+  buildHeader();
+  renderTable();
+}
+
+function getSortedFiltered() {
+  let arr = Object.values(instruments);
+
+  // text filter
+  if (searchText) {
+    const q = searchText.toUpperCase();
+    arr = arr.filter(d => d.symbol.includes(q));
+  }
+
+  // button filters (AND logic)
+  if (activeFilters.has('oversold')) {
+    arr = arr.filter(d =>
+      (d.rsi15m !== null && d.rsi15m <= 30) ||
+      (d.rsi30m !== null && d.rsi30m <= 30) ||
+      (d.rsi4h !== null && d.rsi4h <= 30) ||
+      (d.rsiDaily !== null && d.rsiDaily <= 30)
+    );
+  }
+  if (activeFilters.has('overbought')) {
+    arr = arr.filter(d =>
+      (d.rsi15m !== null && d.rsi15m >= 70) ||
+      (d.rsi30m !== null && d.rsi30m >= 70) ||
+      (d.rsi4h !== null && d.rsi4h >= 70) ||
+      (d.rsiDaily !== null && d.rsiDaily >= 70)
+    );
+  }
+  if (activeFilters.has('divergence')) {
+    arr = arr.filter(d =>
+      d.div15m === 'bull' || d.div15m === 'bear' ||
+      d.div30m === 'bull' || d.div30m === 'bear'
+    );
+  }
+  if (activeFilters.has('rvol')) {
+    arr = arr.filter(d => d.relVolume !== null && d.relVolume > 2);
+  }
+
+  // Sort
+  arr.sort((a, b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    // Handle nulls
+    if (va === null || va === undefined) va = sortDir === 1 ? Infinity : -Infinity;
+    if (vb === null || vb === undefined) vb = sortDir === 1 ? Infinity : -Infinity;
+    // String sort for symbol
+    if (sortKey === 'symbol') return sortDir * ('' + va).localeCompare('' + vb);
+    // Divergence sort: bull=1, bear=2, none=0
+    if (sortKey === 'div15m' || sortKey === 'div30m') {
+      const order = { bull: 2, bear: 1, none: 0 };
+      va = order[va] || 0;
+      vb = order[vb] || 0;
+    }
+    if (typeof va === 'string') va = parseFloat(va) || 0;
+    if (typeof vb === 'string') vb = parseFloat(vb) || 0;
+    return sortDir * (va - vb);
+  });
+
+  return arr;
+}
+
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  const arr = getSortedFiltered();
+
+  if (arr.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="' + COLUMNS.length +
+      '" class="empty-state">No instruments match the current filters</td></tr>';
+    return;
+  }
+
+  // Build rows
+  const frag = document.createDocumentFragment();
+  arr.forEach(d => {
+    const tr = document.createElement('tr');
+    tr.dataset.symbol = d.symbol;
+
+    // Detect changes for flash
+    if (previousPrices[d.symbol] !== undefined && previousPrices[d.symbol] !== d.price) {
+      tr.classList.add('flash-update');
+    }
+
+    // Symbol
+    let td = document.createElement('td');
+    td.textContent = d.symbol;
+    tr.appendChild(td);
+
+    // Price
+    td = document.createElement('td');
+    td.textContent = formatPrice(d.price);
+    tr.appendChild(td);
+
+    // 24H Change
+    td = document.createElement('td');
+    td.textContent = formatPct(d.change24h);
+    td.className = changeClass(d.change24h);
+    tr.appendChild(td);
+
+    // Volume
+    td = document.createElement('td');
+    td.textContent = formatVolume(d.volume24h);
+    tr.appendChild(td);
+
+    // Relative Volume
+    td = document.createElement('td');
+    if (d.relVolume !== null) {
+      td.textContent = d.relVolume.toFixed(1) + 'x';
+      td.className = rvolClass(d.relVolume);
+    } else {
+      td.textContent = '—';
+      td.className = 'rvol-normal';
+    }
+    tr.appendChild(td);
+
+    // RSI columns
+    ['rsi15m', 'rsi30m', 'rsi4h', 'rsiDaily'].forEach(k => {
+      td = document.createElement('td');
+      td.textContent = formatRSI(d[k]);
+      td.className = rsiClass(d[k]);
+      tr.appendChild(td);
+    });
+
+    // Div columns
+    ['div15m', 'div30m'].forEach(k => {
+      td = document.createElement('td');
+      td.innerHTML = divHTML(d[k]);
+      tr.appendChild(td);
+    });
+
+    // Funding Rate
+    td = document.createElement('td');
+    td.textContent = formatFundingRate(d.fundingRate);
+    const fc = fundingColor(d.fundingRate);
+    if (fc) td.setAttribute('style', fc);
+    tr.appendChild(td);
+
+    // Open Interest
+    td = document.createElement('td');
+    td.textContent = formatVolume(d.openInterest);
+    tr.appendChild(td);
+
+    frag.appendChild(tr);
+  });
+
+  tbody.innerHTML = '';
+  tbody.appendChild(frag);
+}
+
+// ============================================================
+// Status updates
+// ============================================================
+
+function setStatus(text, loading) {
+  document.getElementById('statusText').textContent = text;
+  const dot = document.getElementById('statusDot');
+  dot.classList.toggle('loading', !!loading);
+}
+
+function updateInstrumentCount() {
+  document.getElementById('instrumentCount').textContent = Object.keys(instruments).length;
+}
+
+function setProgress(pct) {
+  const container = document.getElementById('progressBarContainer');
+  const bar = document.getElementById('progressBar');
+  if (pct < 0) { container.classList.remove('active'); return; }
+  container.classList.add('active');
+  bar.style.width = pct + '%';
+}
+
+function setRSIProgress(done, total) {
+  const el = document.getElementById('rsiProgress');
+  const txt = document.getElementById('rsiProgressText');
+  if (done < 0) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  txt.textContent = 'Computing RSI: ' + done + '/' + total + ' symbols...';
+}
+
+function updateLastRefresh() {
+  const now = new Date();
+  document.getElementById('lastRefresh').textContent =
+    now.toLocaleTimeString('en-US', { hour12: false });
+}
+
+function startCountdown() {
+  nextRefreshAt = Date.now() + REFRESH_INTERVAL;
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    const remaining = Math.max(0, Math.ceil((nextRefreshAt - Date.now()) / 1000));
+    document.getElementById('nextRefresh').textContent = remaining + 's';
+    if (remaining <= 0) clearInterval(countdownTimer);
+  }, 1000);
+}
+
+// ============================================================
+// Main data loading
+// ============================================================
+
+async function loadTickers() {
+  setStatus('Fetching tickers...', true);
+  const tickers = await fetchTickers();
+
+  // Save previous prices for flash
+  previousPrices = {};
+  Object.values(instruments).forEach(d => {
+    previousPrices[d.symbol] = d.price;
+  });
+
+  tickers.forEach(t => {
+    const sym = t.symbol;
+    const existing = instruments[sym] || {};
+    instruments[sym] = {
+      symbol: sym,
+      price: parseFloat(t.lastPrice) || 0,
+      change24h: parseFloat(t.price24hPcnt) * 100 || 0,
+      volume24h: parseFloat(t.turnover24h) || 0,
+      fundingRate: parseFloat(t.fundingRate) || 0,
+      openInterest: parseFloat(t.openInterest) * (parseFloat(t.lastPrice) || 0),
+      // Preserve computed fields
+      relVolume: existing.relVolume || null,
+      rsi15m: existing.rsi15m || null,
+      rsi30m: existing.rsi30m || null,
+      rsi4h: existing.rsi4h || null,
+      rsiDaily: existing.rsiDaily || null,
+      div15m: existing.div15m || 'none',
+      div30m: existing.div30m || 'none',
+    };
+  });
+
+  // Remove delisted
+  const activeSyms = new Set(tickers.map(t => t.symbol));
+  Object.keys(instruments).forEach(s => {
+    if (!activeSyms.has(s)) delete instruments[s];
+  });
+
+  updateInstrumentCount();
+  setStatus('Tickers loaded', false);
+}
+
+async function loadKlineDataForSymbol(symbol) {
+  // Intervals: 15 = 15m, 30 = 30m, 240 = 4h, D = daily
+  const intervals = [
+    { key: '15', rsiKey: 'rsi15m', divKey: 'div15m' },
+    { key: '30', rsiKey: 'rsi30m', divKey: 'div30m' },
+    { key: '240', rsiKey: 'rsi4h', divKey: null },
+    { key: 'D', rsiKey: 'rsiDaily', divKey: null },
+  ];
+
+  const inst = instruments[symbol];
+  if (!inst) return;
+
+  for (const iv of intervals) {
+    try {
+      const candles = await fetchKline(symbol, iv.key, KLINE_LIMIT);
+      if (!candles || candles.length < RSI_PERIOD + 2) {
+        inst[iv.rsiKey] = null;
+        if (iv.divKey) inst[iv.divKey] = 'none';
+        continue;
+      }
+
+      // candles: [startTime, open, high, low, close, volume, turnover]
+      const closes = candles.map(c => parseFloat(c[4]));
+      const highs = candles.map(c => parseFloat(c[2]));
+      const lows = candles.map(c => parseFloat(c[3]));
+
+      inst[iv.rsiKey] = computeRSI(closes);
+
+      if (iv.divKey) {
+        const rsiSeries = computeRSISeries(closes);
+        const candleObjs = candles.map((c, i) => ({
+          high: highs[i], low: lows[i], close: closes[i]
+        }));
+        inst[iv.divKey] = detectDivergence(candleObjs, rsiSeries);
+      }
+
+      // Use daily klines for relative volume
+      if (iv.key === 'D') {
+        const turnovers = candles.map(c => parseFloat(c[6]));
+        if (turnovers.length >= 2) {
+          // Current day turnover is the last element; avg over previous 20 days
+          const prevDays = turnovers.slice(-21, -1);
+          if (prevDays.length > 0) {
+            const avgVol = prevDays.reduce((a, b) => a + b, 0) / prevDays.length;
+            inst.relVolume = avgVol > 0 ? inst.volume24h / avgVol : null;
+          }
+        }
+      }
+    } catch (e) {
+      // Silently skip failed requests for individual symbols
+      console.warn('Kline fetch failed for', symbol, iv.key, e.message);
+    }
+  }
+}
+
+async function loadAllKlineData(signal) {
+  const symbols = Object.keys(instruments);
+  const total = symbols.length;
+  let done = 0;
+
+  setRSIProgress(0, total);
+  setProgress(0);
+
+  for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+    if (signal && signal.aborted) return;
+
+    const batch = symbols.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(sym => loadKlineDataForSymbol(sym)));
+
+    done += batch.length;
+    setRSIProgress(done, total);
+    setProgress(Math.round(done / total * 100));
+    renderTable();
+
+    if (i + BATCH_SIZE < symbols.length) {
+      await new Promise(r => setTimeout(r, BATCH_DELAY));
+    }
+  }
+
+  setRSIProgress(-1);
+  setProgress(-1);
+}
+
+async function fullRefresh() {
+  if (isRefreshing) return;
+  isRefreshing = true;
+
+  try {
+    // Abort previous kline loading if still running
+    if (rsiAbortController) rsiAbortController.abort();
+    rsiAbortController = new AbortController();
+
+    await loadTickers();
+    renderTable();
+    updateLastRefresh();
+
+    // Kline data in background
+    await loadAllKlineData(rsiAbortController.signal);
+
+    setStatus('Live', false);
+  } catch (e) {
+    setStatus('Error: ' + e.message, false);
+    console.error('Refresh error:', e);
+  } finally {
+    isRefreshing = false;
+    startCountdown();
+  }
+}
+
+// ============================================================
+// Event handlers
+// ============================================================
+
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  searchText = e.target.value.trim();
+  renderTable();
+});
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const f = btn.dataset.filter;
+    if (activeFilters.has(f)) {
+      activeFilters.delete(f);
+      btn.classList.remove('active');
+    } else {
+      activeFilters.add(f);
+      btn.classList.add('active');
+    }
+    renderTable();
+  });
+});
+
+// ============================================================
+// Init
+// ============================================================
+
+buildHeader();
+
+(async function init() {
+  try {
+    await fullRefresh();
+    document.getElementById('loadingOverlay').classList.add('hidden');
+  } catch (e) {
+    document.getElementById('loadingOverlay').innerHTML =
+      '<span style="color:var(--red)">Failed to load data: ' + e.message + '</span>';
+  }
+  // Start auto-refresh
+  refreshTimer = setInterval(() => fullRefresh(), REFRESH_INTERVAL);
+})();
+</script>
+</body>
+</html>
