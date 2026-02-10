@@ -292,6 +292,14 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
 .choch-none { color: var(--text-muted); }
 .choch-aligned { background: rgba(88, 166, 255, 0.1); }
 
+/* Condensed column styles */
+.tf-label { font-size: 10px; color: var(--text-muted); margin-left: 3px; }
+.score-high { color: var(--green); font-weight: 700; font-size: 13px; }
+.score-medium { color: var(--yellow); font-weight: 600; }
+.score-low { color: var(--text-secondary); }
+.choch-mixed { color: var(--yellow); font-weight: 700; }
+.choch-aligned-badge { background: rgba(88, 166, 255, 0.15); padding: 1px 4px; border-radius: 3px; }
+
 /* Loading overlay */
 .loading-overlay {
   position: absolute;
@@ -407,28 +415,22 @@ const CACHE_TS_KEY = 'bybit_screener_cache_ts';
 
 // Column definitions
 const COLUMNS = [
-  { key: 'symbol',       label: 'Symbol',          align: 'left'  },
-  { key: 'price',        label: 'Price',           align: 'right' },
-  { key: 'change24h',    label: '24H Chg %',       align: 'right' },
-  { key: 'volume24h',    label: '24H Vol (USDT)',   align: 'right' },
-  { key: 'relVolume',    label: 'Rel Vol',          align: 'right' },
-  { key: 'rsi15m',       label: 'RSI 15m',          align: 'right' },
-  { key: 'rsi30m',       label: 'RSI 30m',          align: 'right' },
-  { key: 'rsi4h',        label: 'RSI 4H',           align: 'right' },
-  { key: 'rsiDaily',     label: 'RSI Daily',        align: 'right' },
-  { key: 'div15m',       label: 'Div 15m',          align: 'right' },
-  { key: 'div30m',       label: 'Div 30m',          align: 'right' },
-  { key: 'choch15m',     label: 'CHOCH 15m',        align: 'right' },
-  { key: 'choch30m',     label: 'CHOCH 30m',        align: 'right' },
-  { key: 'choch4h',      label: 'CHOCH 4H',         align: 'right' },
-  { key: 'chochDaily',   label: 'CHOCH Daily',      align: 'right' },
-  { key: 'fundingRate',  label: 'Funding Rate',     align: 'right' },
-  { key: 'openInterest', label: 'OI (USDT)',        align: 'right' },
+  { key: 'symbol',       label: 'Symbol',      align: 'left'  },
+  { key: 'price',        label: 'Price',       align: 'right' },
+  { key: 'change24h',    label: '24H Chg%',    align: 'right' },
+  { key: 'volume24h',    label: '24H Vol',     align: 'right' },
+  { key: 'relVolume',    label: 'Rel Vol',     align: 'right' },
+  { key: 'rsiLtf',       label: 'RSI 15/30m',  align: 'right' },
+  { key: 'rsiHtf',       label: 'RSI HTF',     align: 'right' },
+  { key: 'choch',        label: 'CHOCH',       align: 'right' },
+  { key: 'score',        label: 'Score',       align: 'right' },
+  { key: 'fundingRate',  label: 'Funding',     align: 'right' },
+  { key: 'openInterest', label: 'OI',          align: 'right' },
 ];
 
 // State
 let instruments = {};          // symbol -> data object
-let sortKey = 'volume24h';
+let sortKey = 'score';
 let sortDir = -1;              // -1 = desc, 1 = asc
 let activeFilters = new Set();
 let searchText = '';
@@ -787,6 +789,106 @@ function changeClass(v) {
 }
 
 // ============================================================
+// Condensed column helpers
+// ============================================================
+
+function getMostExtremeRSI_HTF(d) {
+  const rsis = [
+    { val: d.rsi4h, tf: '4H' },
+    { val: d.rsiDaily, tf: 'D' },
+  ].filter(r => r.val !== null && r.val !== undefined);
+  if (rsis.length === 0) return { val: null, tf: '' };
+  rsis.sort((a, b) => Math.abs(b.val - 50) - Math.abs(a.val - 50));
+  return rsis[0];
+}
+
+function getChochSummary(d) {
+  const chochs = [
+    { val: d.choch15m, tf: '15m' },
+    { val: d.choch30m, tf: '30m' },
+    { val: d.choch4h, tf: '4H' },
+    { val: d.chochDaily, tf: 'D' },
+  ];
+  const active = chochs.filter(c => c.val !== 'none' && c.val !== undefined);
+  if (active.length === 0) return { dir: 'none', count: 0, total: 4, aligned: false, tfs: [] };
+  const bulls = active.filter(c => c.val === 'bull').length;
+  const bears = active.filter(c => c.val === 'bear').length;
+  const dir = bulls > bears ? 'bull' : bears > bulls ? 'bear' : 'mixed';
+  const aligned = active.length >= 2 && active.every(c => c.val === active[0].val);
+  const tfs = active.map(c => c.tf);
+  return { dir, count: active.length, total: 4, aligned, tfs };
+}
+
+function computeScore(d) {
+  let score = 0;
+
+  // RSI: most extreme across ALL TFs (0-25 pts)
+  const allRsi = [d.rsi15m, d.rsi30m, d.rsi4h, d.rsiDaily].filter(v => v !== null && v !== undefined);
+  if (allRsi.length > 0) {
+    score += Math.min(Math.max(...allRsi.map(r => Math.abs(r - 50))), 25);
+  }
+
+  // Divergence (0-30 pts)
+  if (d.div15m === 'bull' || d.div15m === 'bear') score += 15;
+  if (d.div30m === 'bull' || d.div30m === 'bear') score += 15;
+
+  // CHOCH (0-50 pts)
+  const ch = getChochSummary(d);
+  score += ch.count * 10;
+  if (ch.aligned) score += 10;
+
+  // Relative volume (0-15 pts)
+  if (d.relVolume !== null && d.relVolume > 1) {
+    score += Math.min((d.relVolume - 1) * 5, 15);
+  }
+
+  return Math.round(score);
+}
+
+// RSI 15/30m column: shows both values + div indicators inline
+function rsiLtfHTML(d) {
+  const r15 = d.rsi15m;
+  const r30 = d.rsi30m;
+  const d15 = d.div15m;
+  const d30 = d.div30m;
+
+  function rsiSpan(val, div) {
+    if (val === null || val === undefined) return '<span class="rsi-neutral">\u2014</span>';
+    const divIcon = div === 'bull' ? '\u{1F7E2}' : div === 'bear' ? '\u{1F534}' : '';
+    return '<span class="' + rsiClass(val) + '">' + val.toFixed(1) + '</span>' +
+      (divIcon ? '<span style="font-size:10px;margin-left:1px">' + divIcon + '</span>' : '');
+  }
+
+  return rsiSpan(r15, d15) + '<span class="tf-label">/</span>' + rsiSpan(r30, d30);
+}
+
+// RSI HTF column: most extreme of 4H/Daily + TF label
+function rsiHtfHTML(d) {
+  const rsi = getMostExtremeRSI_HTF(d);
+  if (rsi.val === null) return '<span class="rsi-neutral">\u2014</span>';
+  return '<span class="' + rsiClass(rsi.val) + '">' + rsi.val.toFixed(1) + '</span>' +
+    '<span class="tf-label">' + rsi.tf + '</span>';
+}
+
+// CHOCH condensed: "BUL 3/4" or "BER 2/4" with TF list
+function chochCondensedHTML(d) {
+  const ch = getChochSummary(d);
+  if (ch.count === 0) return '<span class="choch-none">\u2014</span>';
+  const cls = ch.dir === 'bull' ? 'choch-bull' : ch.dir === 'bear' ? 'choch-bear' : 'choch-mixed';
+  const label = ch.dir === 'bull' ? 'BUL' : ch.dir === 'bear' ? 'BER' : 'MIX';
+  let html = '<span class="' + cls + '">' + label + ' ' + ch.count + '/' + ch.total + '</span>';
+  if (ch.aligned) html = '<span class="choch-aligned-badge">' + html + '</span>';
+  return html;
+}
+
+function scoreHTML(score) {
+  let cls = 'score-low';
+  if (score >= 50) cls = 'score-high';
+  else if (score >= 25) cls = 'score-medium';
+  return '<span class="' + cls + '">' + score + '</span>';
+}
+
+// ============================================================
 // Table building
 // ============================================================
 
@@ -863,22 +965,47 @@ function getSortedFiltered() {
     });
   }
 
+  // Compute score for sorting and display
+  arr.forEach(d => { d._score = computeScore(d); });
+
   // Sort
   arr.sort((a, b) => {
+    if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
+
+    // Condensed RSI 15/30m: sort by most extreme of the two
+    if (sortKey === 'rsiLtf') {
+      const ea = [a.rsi15m, a.rsi30m].filter(v => v !== null && v !== undefined);
+      const eb = [b.rsi15m, b.rsi30m].filter(v => v !== null && v !== undefined);
+      const va = ea.length > 0 ? Math.max(...ea.map(r => Math.abs(r - 50))) : -1;
+      const vb = eb.length > 0 ? Math.max(...eb.map(r => Math.abs(r - 50))) : -1;
+      return sortDir * (va - vb);
+    }
+
+    // Condensed RSI HTF: sort by most extreme of 4H/Daily
+    if (sortKey === 'rsiHtf') {
+      const ra = getMostExtremeRSI_HTF(a);
+      const rb = getMostExtremeRSI_HTF(b);
+      const va = ra.val !== null ? Math.abs(ra.val - 50) : -1;
+      const vb = rb.val !== null ? Math.abs(rb.val - 50) : -1;
+      return sortDir * (va - vb);
+    }
+
+    // CHOCH condensed: sort by count + alignment bonus
+    if (sortKey === 'choch') {
+      const ca = getChochSummary(a);
+      const cb = getChochSummary(b);
+      const va = ca.count + (ca.aligned ? 0.5 : 0);
+      const vb = cb.count + (cb.aligned ? 0.5 : 0);
+      return sortDir * (va - vb);
+    }
+
+    // Score
+    if (sortKey === 'score') return sortDir * (a._score - b._score);
+
+    // Default numeric sort
     let va = a[sortKey], vb = b[sortKey];
-    // Handle nulls
     if (va === null || va === undefined) va = sortDir === 1 ? Infinity : -Infinity;
     if (vb === null || vb === undefined) vb = sortDir === 1 ? Infinity : -Infinity;
-    // String sort for symbol
-    if (sortKey === 'symbol') return sortDir * ('' + va).localeCompare('' + vb);
-    // Divergence / CHOCH sort: bull=2, bear=1, none=0
-    if (sortKey === 'div15m' || sortKey === 'div30m' ||
-        sortKey === 'choch15m' || sortKey === 'choch30m' ||
-        sortKey === 'choch4h' || sortKey === 'chochDaily') {
-      const order = { bull: 2, bear: 1, none: 0 };
-      va = order[va] || 0;
-      vb = order[vb] || 0;
-    }
     if (typeof va === 'string') va = parseFloat(va) || 0;
     if (typeof vb === 'string') vb = parseFloat(vb) || 0;
     return sortDir * (va - vb);
@@ -935,38 +1062,30 @@ function renderTable() {
       td.textContent = d.relVolume.toFixed(1) + 'x';
       td.className = rvolClass(d.relVolume);
     } else {
-      td.textContent = '—';
+      td.textContent = '\u2014';
       td.className = 'rvol-normal';
     }
     tr.appendChild(td);
 
-    // RSI columns
-    ['rsi15m', 'rsi30m', 'rsi4h', 'rsiDaily'].forEach(k => {
-      td = document.createElement('td');
-      td.textContent = formatRSI(d[k]);
-      td.className = rsiClass(d[k]);
-      tr.appendChild(td);
-    });
+    // RSI 15/30m (with div indicators)
+    td = document.createElement('td');
+    td.innerHTML = rsiLtfHTML(d);
+    tr.appendChild(td);
 
-    // Div columns
-    ['div15m', 'div30m'].forEach(k => {
-      td = document.createElement('td');
-      td.innerHTML = divHTML(d[k]);
-      tr.appendChild(td);
-    });
+    // RSI HTF (most extreme of 4H/Daily)
+    td = document.createElement('td');
+    td.innerHTML = rsiHtfHTML(d);
+    tr.appendChild(td);
 
-    // CHOCH columns
-    const chochKeys = ['choch15m', 'choch30m', 'choch4h', 'chochDaily'];
-    const chochValues = chochKeys.map(k => d[k]);
-    const chochNonNone = chochValues.filter(v => v !== 'none' && v !== undefined);
-    const allAligned = chochNonNone.length >= 2 && chochNonNone.every(v => v === chochNonNone[0]);
+    // CHOCH (condensed)
+    td = document.createElement('td');
+    td.innerHTML = chochCondensedHTML(d);
+    tr.appendChild(td);
 
-    chochKeys.forEach(k => {
-      td = document.createElement('td');
-      td.innerHTML = chochHTML(d[k]);
-      if (allAligned && d[k] !== 'none') td.classList.add('choch-aligned');
-      tr.appendChild(td);
-    });
+    // Score
+    td = document.createElement('td');
+    td.innerHTML = scoreHTML(d._score);
+    tr.appendChild(td);
 
     // Funding Rate
     td = document.createElement('td');
