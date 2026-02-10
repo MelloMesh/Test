@@ -1,0 +1,36 @@
+exchange:
+  name: binance
+  paper_mode: true
+  api_key_env: EXCHANGE_API_KEY
+  api_secret_env: EXCHANGE_API_SECRET
+
+trading:
+  symbols:
+    - "BTC/USDT"
+    - "ETH/USDT"
+  timeframe: "5m"
+  tick_interval_seconds: 300
+
+strategy:
+  ema_fast: 12
+  ema_slow: 26
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  min_volume_usdt: 100000
+  signal_threshold: 0.6
+
+risk:
+  max_position_pct: 0.05
+  max_open_positions: 3
+  max_daily_loss_pct: 0.03
+  max_drawdown_pct: 0.10
+  stop_loss_pct: 0.02
+  take_profit_pct: 0.04
+
+learning:
+  review_after_n_trades: 20
+  lookback_trades: 50
+  param_adjustment_step: 0.05
+  max_param_deviation: 0.30
+  snapshot_dir: "data/snapshots"

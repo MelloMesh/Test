@@ -1,0 +1,28 @@
+# Environment
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data (keep structure, ignore contents)
+data/trades/*.json
+data/snapshots/*.json
+!data/trades/.gitkeep
+!data/snapshots/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Distribution
+dist/
+build/
+*.egg-info/
