@@ -639,6 +639,39 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
   font-weight: 400;
 }
 
+/* ── OI Delta ── */
+.oi-new-long { color: var(--green-bright); font-weight: 600; }
+.oi-new-short { color: var(--red-bright); font-weight: 600; }
+.oi-short-cover { color: var(--yellow); }
+.oi-liq-long { color: var(--orange); }
+.oi-flat { color: var(--text-muted); }
+
+/* ── Liquidation Proximity ── */
+.liq-close { color: var(--red-bright); font-weight: 600; }
+.liq-medium { color: var(--yellow); }
+.liq-far { color: var(--text-secondary); }
+
+/* ── CVD ── */
+.cvd-bull { color: var(--green); }
+.cvd-bear { color: var(--red); }
+.cvd-neutral { color: var(--text-muted); }
+
+/* ── Squeeze ── */
+.squeeze-active {
+  color: var(--yellow);
+  font-weight: 700;
+  background: rgba(234,179,8,0.10);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.squeeze-building { color: var(--orange); }
+.squeeze-none { color: var(--text-muted); }
+
+/* ── Funding Velocity ── */
+.fvel-rising { color: var(--red); }
+.fvel-falling { color: var(--green); }
+.fvel-flat { color: var(--text-muted); }
+
 /* ── Loading overlay ── */
 .loading-overlay {
   position: absolute;
@@ -706,6 +739,9 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
       <button class="filter-pill" data-filter="divergence">Divergence</button>
       <button class="filter-pill" data-filter="rvol">RVol &gt; 2x</button>
       <button class="filter-pill" data-filter="choch-aligned">CHOCH Aligned</button>
+      <button class="filter-pill" data-filter="squeeze">Squeeze</button>
+      <button class="filter-pill" data-filter="oi-buildup">OI Buildup</button>
+      <button class="filter-pill" data-filter="cvd-div">CVD Divergence</button>
       <button class="filter-pill" data-filter="strong-long">Strong Long</button>
       <button class="filter-pill" data-filter="strong-short">Strong Short</button>
       <button class="filter-clear" id="filterClear">Clear all</button>
@@ -732,9 +768,9 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
     <div class="status-item">Updated <span id="lastRefresh">&mdash;</span></div>
     <span class="status-separator">&middot;</span>
     <div class="status-item">Next <span id="nextRefresh">&mdash;</span></div>
-    <div class="status-item" id="rsiProgress" style="display:none">
+    <div class="status-item" id="dataProgress" style="display:none">
       <span class="status-separator">&middot;</span>
-      <span id="rsiProgressText"></span>
+      <span id="dataProgressText"></span>
     </div>
   </div>
   <div class="table-container" id="tableContainer">
@@ -769,18 +805,29 @@ const CACHE_TS_KEY = 'bybit_screener_cache_ts';
 const COL_PREFS_KEY = 'bybit_screener_columns';
 const COL_ORDER_KEY = 'bybit_screener_col_order';
 
+// New constants for the 5 new features
+const BB_PERIOD = 20;
+const BB_STD = 2;
+const OI_HISTORY_LIMIT = 48;
+const FUNDING_HISTORY_LIMIT = 10;
+
 // Column definitions (all available) — default order
 const DEFAULT_COLUMNS = [
-  { key: 'symbol',       label: 'Symbol',      align: 'left',  locked: true },
-  { key: 'price',        label: 'Price',       align: 'right', locked: false },
-  { key: 'change24h',    label: '24H Chg%',    align: 'right', locked: false },
-  { key: 'volume24h',    label: '24H Vol',     align: 'right', locked: false },
-  { key: 'relVolume',    label: 'Rel Vol',     align: 'right', locked: false },
-  { key: 'rsiLtf',       label: 'RSI 15/30m',  align: 'right', locked: false },
-  { key: 'rsiHtf',       label: 'RSI HTF',     align: 'right', locked: false },
-  { key: 'signal',       label: 'Signal',      align: 'right', locked: false },
-  { key: 'fundingRate',  label: 'Funding',     align: 'right', locked: false },
-  { key: 'openInterest', label: 'OI',          align: 'right', locked: false },
+  { key: 'symbol',        label: 'Symbol',      align: 'left',  locked: true },
+  { key: 'price',         label: 'Price',       align: 'right', locked: false },
+  { key: 'change24h',     label: '24H Chg%',    align: 'right', locked: false },
+  { key: 'volume24h',     label: '24H Vol',     align: 'right', locked: false },
+  { key: 'relVolume',     label: 'Rel Vol',     align: 'right', locked: false },
+  { key: 'rsiLtf',        label: 'RSI 15/30m',  align: 'right', locked: false },
+  { key: 'rsiHtf',        label: 'RSI HTF',     align: 'right', locked: false },
+  { key: 'signal',        label: 'Signal',      align: 'right', locked: false },
+  { key: 'oiDelta',       label: 'OI Delta',    align: 'right', locked: false },
+  { key: 'liqProximity',  label: 'Liq Prox',    align: 'right', locked: false },
+  { key: 'cvd',           label: 'CVD',         align: 'right', locked: false },
+  { key: 'squeeze',       label: 'Squeeze',     align: 'right', locked: false },
+  { key: 'fundVelocity',  label: 'Fund Vel',    align: 'right', locked: false },
+  { key: 'fundingRate',   label: 'Funding',     align: 'right', locked: false },
+  { key: 'openInterest',  label: 'OI',          align: 'right', locked: false },
 ];
 
 const COLUMN_MAP = {};
@@ -816,14 +863,11 @@ function loadColumnPrefs() {
     if (savedOrder) {
       const arr = JSON.parse(savedOrder);
       if (Array.isArray(arr) && arr.length > 0) {
-        // Ensure symbol stays first and all keys present
         const validKeys = new Set(DEFAULT_COLUMNS.map(c => c.key));
         const ordered = arr.filter(k => validKeys.has(k));
-        // Add any missing keys
         DEFAULT_COLUMNS.forEach(c => {
           if (!ordered.includes(c.key)) ordered.push(c.key);
         });
-        // Ensure symbol is always first
         const symIdx = ordered.indexOf('symbol');
         if (symIdx > 0) { ordered.splice(symIdx, 1); ordered.unshift('symbol'); }
         columnOrder = ordered;
@@ -844,7 +888,6 @@ function moveColumn(fromKey, toKey) {
   const fromIdx = columnOrder.indexOf(fromKey);
   const toIdx = columnOrder.indexOf(toKey);
   if (fromIdx < 0 || toIdx < 0) return;
-  // Don't allow moving before symbol (index 0)
   if (toIdx === 0) return;
   columnOrder.splice(fromIdx, 1);
   const newToIdx = columnOrder.indexOf(toKey);
@@ -928,8 +971,24 @@ async function fetchKline(symbol, interval, limit) {
   return (result.list || []).reverse();
 }
 
+async function fetchOIHistory(symbol) {
+  const result = await apiFetch(
+    '/v5/market/open-interest?category=linear&symbol=' + symbol +
+    '&intervalTime=1h&limit=' + OI_HISTORY_LIMIT
+  );
+  return (result.list || []).reverse();
+}
+
+async function fetchFundingHistory(symbol) {
+  const result = await apiFetch(
+    '/v5/market/funding/history?category=linear&symbol=' + symbol +
+    '&limit=' + FUNDING_HISTORY_LIMIT
+  );
+  return (result.list || []).reverse();
+}
+
 // ============================================================
-// Technical calculations
+// Technical calculations — existing
 // ============================================================
 
 function computeRSI(closes) {
@@ -1030,6 +1089,169 @@ function detectCHOCH(candles) {
     }
   }
   return 'none';
+}
+
+// ============================================================
+// Technical calculations — NEW: 5 composite features
+// ============================================================
+
+// ── 1. OI Delta vs Price ──
+function computeOIDelta(oiHistory) {
+  if (!oiHistory || oiHistory.length < 2) return { pct24h: null, pct4h: null };
+  const newest = parseFloat(oiHistory[oiHistory.length - 1].openInterest);
+  const oldest = parseFloat(oiHistory[0].openInterest);
+  if (oldest === 0 || isNaN(oldest) || isNaN(newest)) return { pct24h: null, pct4h: null };
+  const pct24h = ((newest - oldest) / oldest) * 100;
+  // 4h delta: use last 4 entries (1h intervals)
+  const idx4h = Math.max(0, oiHistory.length - 5);
+  const oi4hAgo = parseFloat(oiHistory[idx4h].openInterest);
+  const pct4h = oi4hAgo > 0 ? ((newest - oi4hAgo) / oi4hAgo) * 100 : null;
+  return { pct24h, pct4h };
+}
+
+function getOIDeltaLabel(oiPct, priceChg) {
+  if (oiPct === null) return { label: '\u2014', cls: 'oi-flat', dir: 0 };
+  const oiUp = oiPct > 1;
+  const oiDown = oiPct < -1;
+  const priceUp = priceChg > 0;
+  if (oiUp && priceUp) return { label: 'NEW LONG', cls: 'oi-new-long', dir: 1 };
+  if (oiUp && !priceUp) return { label: 'NEW SHRT', cls: 'oi-new-short', dir: -1 };
+  if (oiDown && priceUp) return { label: 'SHT CVR', cls: 'oi-short-cover', dir: -0.5 };
+  if (oiDown && !priceUp) return { label: 'LIQ LNG', cls: 'oi-liq-long', dir: 0.5 };
+  return { label: 'FLAT', cls: 'oi-flat', dir: 0 };
+}
+
+// ── 2. Liquidation Proximity ──
+function computeLiquidationProximity(candles4h, currentPrice) {
+  if (!candles4h || candles4h.length < 5 || !currentPrice) return { above: null, below: null };
+  const len = candles4h.length;
+  // Find swing highs and lows (likely entry zones)
+  const swingHighs = [], swingLows = [];
+  for (let i = 2; i < len - 2; i++) {
+    if (candles4h[i].high > candles4h[i-1].high && candles4h[i].high > candles4h[i+1].high &&
+        candles4h[i].high > candles4h[i-2].high && candles4h[i].high > candles4h[i+2].high) {
+      swingHighs.push(candles4h[i].high);
+    }
+    if (candles4h[i].low < candles4h[i-1].low && candles4h[i].low < candles4h[i+1].low &&
+        candles4h[i].low < candles4h[i-2].low && candles4h[i].low < candles4h[i+2].low) {
+      swingLows.push(candles4h[i].low);
+    }
+  }
+  const leverages = [10, 25, 50];
+  const liqAbove = [], liqBelow = [];
+  // Shorts entered at swing highs: liquidated above entry
+  for (const h of swingHighs) {
+    for (const lev of leverages) {
+      const liqPrice = h * (1 + 0.85 / lev);
+      if (liqPrice > currentPrice) liqAbove.push(liqPrice);
+    }
+  }
+  // Longs entered at swing lows: liquidated below entry
+  for (const l of swingLows) {
+    for (const lev of leverages) {
+      const liqPrice = l * (1 - 0.85 / lev);
+      if (liqPrice < currentPrice && liqPrice > 0) liqBelow.push(liqPrice);
+    }
+  }
+  // Also add liquidation levels from current-price entries (high leverage retail)
+  for (const lev of [25, 50, 100]) {
+    liqAbove.push(currentPrice * (1 + 0.85 / lev));
+    liqBelow.push(currentPrice * (1 - 0.85 / lev));
+  }
+  const nearestAbove = liqAbove.length > 0 ? Math.min(...liqAbove) : null;
+  const nearestBelow = liqBelow.length > 0 ? Math.max(...liqBelow) : null;
+  const abovePct = nearestAbove ? ((nearestAbove - currentPrice) / currentPrice) * 100 : null;
+  const belowPct = nearestBelow ? ((currentPrice - nearestBelow) / currentPrice) * 100 : null;
+  return { above: abovePct, below: belowPct };
+}
+
+// ── 3. Volume Delta / CVD ──
+function computeCVD(candles) {
+  if (!candles || candles.length < 5) return { trend: 'neutral', divergence: 'none', value: 0 };
+  let cvd = 0;
+  const cvdSeries = [];
+  const priceSeries = [];
+  for (const c of candles) {
+    const range = c.high - c.low;
+    if (range === 0) { cvdSeries.push(cvd); priceSeries.push(c.close); continue; }
+    const buyRatio = (c.close - c.low) / range;
+    const sellRatio = (c.high - c.close) / range;
+    const vol = c.volume || 0;
+    cvd += vol * (buyRatio - sellRatio);
+    cvdSeries.push(cvd);
+    priceSeries.push(c.close);
+  }
+  // Trend: compare last 10 CVD values
+  const lookback = Math.min(10, cvdSeries.length);
+  const recentCVD = cvdSeries.slice(-lookback);
+  const cvdStart = recentCVD[0];
+  const cvdEnd = recentCVD[recentCVD.length - 1];
+  const cvdChange = cvdEnd - cvdStart;
+  const trend = cvdChange > 0 ? 'bull' : cvdChange < 0 ? 'bear' : 'neutral';
+
+  // Divergence detection: price vs CVD
+  let divergence = 'none';
+  if (priceSeries.length >= 10) {
+    const recentPrice = priceSeries.slice(-lookback);
+    const priceStart = recentPrice[0];
+    const priceEnd = recentPrice[recentPrice.length - 1];
+    const priceChange = priceEnd - priceStart;
+    // Bullish divergence: price falling but CVD rising (hidden buying)
+    if (priceChange < 0 && cvdChange > 0) divergence = 'bull';
+    // Bearish divergence: price rising but CVD falling (hidden selling)
+    else if (priceChange > 0 && cvdChange < 0) divergence = 'bear';
+  }
+  return { trend, divergence, value: cvdEnd };
+}
+
+// ── 4. Volatility Squeeze + OI ──
+function computeSqueeze(closes) {
+  if (!closes || closes.length < BB_PERIOD + 20) return { active: false, pctile: null, bbWidth: null };
+  // Compute BB width for rolling windows
+  const widths = [];
+  for (let i = BB_PERIOD; i <= closes.length; i++) {
+    const slice = closes.slice(i - BB_PERIOD, i);
+    const sma = slice.reduce((a, b) => a + b, 0) / BB_PERIOD;
+    if (sma === 0) { widths.push(0); continue; }
+    const variance = slice.reduce((sum, val) => sum + (val - sma) ** 2, 0) / BB_PERIOD;
+    const std = Math.sqrt(variance);
+    widths.push((2 * BB_STD * std) / sma);
+  }
+  if (widths.length < 2) return { active: false, pctile: null, bbWidth: null };
+  const currentWidth = widths[widths.length - 1];
+  // Percentile rank of current width over last 20 periods
+  const lookback = Math.min(20, widths.length);
+  const recentWidths = widths.slice(-lookback);
+  const sorted = [...recentWidths].sort((a, b) => a - b);
+  const rank = sorted.indexOf(currentWidth);
+  const pctile = rank / (sorted.length - 1);
+  // Squeeze active if current width is in bottom 25% of recent range
+  const active = pctile <= 0.25;
+  const building = pctile > 0.25 && pctile <= 0.40;
+  return { active, building, pctile, bbWidth: currentWidth };
+}
+
+// ── 5. Funding Velocity ──
+function computeFundingVelocity(fundingHistory) {
+  if (!fundingHistory || fundingHistory.length < 3) return { slope: null, dir: 'flat', current: null, avg: null };
+  const rates = fundingHistory.map(f => parseFloat(f.fundingRate)).filter(r => !isNaN(r));
+  if (rates.length < 3) return { slope: null, dir: 'flat', current: null, avg: null };
+  // Linear regression slope
+  const n = rates.length;
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += i; sumY += rates[i]; sumXY += i * rates[i]; sumX2 += i * i;
+  }
+  const denom = n * sumX2 - sumX * sumX;
+  const slope = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+  const avg = sumY / n;
+  const current = rates[rates.length - 1];
+  // Direction based on slope magnitude
+  const threshold = 0.00002; // ~0.002% per period
+  let dir = 'flat';
+  if (slope > threshold) dir = 'rising';
+  else if (slope < -threshold) dir = 'falling';
+  return { slope, dir, current, avg };
 }
 
 // ============================================================
@@ -1155,68 +1377,119 @@ function getChochSummary(d) {
   return { dir, count: active.length, total: 4, aligned, tfs: active.map(c => c.tf) };
 }
 
-function computeSignal(d) {
-  // Directional score: positive = long bias, negative = short bias
-  let raw = 0;
+// ============================================================
+// Composite signal scoring — NEW weighted system
+// ============================================================
+// Weights: OI Delta 25%, Liq Prox 20%, CVD 15%, Squeeze 15%,
+//          Funding Vel 10%, RSI+Div 10%, CHOCH 5%
+// ============================================================
 
-  // RSI component — per timeframe, higher TF = more weight
+function computeSignal(d) {
+  let score = 0;
+
+  // ── 1. OI Delta vs Price (25% weight, max ±5 pts) ──
+  if (d.oiDeltaPct !== null && d.oiDeltaPct !== undefined) {
+    const absOI = Math.abs(d.oiDeltaPct);
+    const priceUp = d.change24h > 0;
+    const oiUp = d.oiDeltaPct > 1;
+    const oiDown = d.oiDeltaPct < -1;
+    if (oiUp && priceUp) {
+      // New longs entering → bullish trend continuation
+      score += Math.min(absOI / 3, 5);
+    } else if (oiUp && !priceUp) {
+      // New shorts entering → bearish pressure
+      score -= Math.min(absOI / 3, 5);
+    } else if (oiDown && priceUp) {
+      // Short covering → weak/unsustainable rally
+      score -= Math.min(absOI / 5, 2);
+    } else if (oiDown && !priceUp) {
+      // Long liquidation / capitulation → contrarian bullish
+      score += Math.min(absOI / 5, 3);
+    }
+  }
+
+  // ── 2. Liquidation Proximity (20% weight, max ±4 pts) ──
+  if (d.liqAbovePct !== null && d.liqBelowPct !== null &&
+      d.liqAbovePct !== undefined && d.liqBelowPct !== undefined) {
+    const total = d.liqAbovePct + d.liqBelowPct;
+    if (total > 0) {
+      // ratio < 0.5 = closer to above (shorts liq) = bullish magnet
+      // ratio > 0.5 = closer to below (longs liq) = bearish magnet
+      const ratio = d.liqAbovePct / total;
+      score += (0.5 - ratio) * 8; // yields ±4 max
+    }
+  }
+
+  // ── 3. CVD Divergence (15% weight, max ±3.5 pts) ──
+  if (d.cvdDivergence === 'bull') score += 2.5;
+  else if (d.cvdDivergence === 'bear') score -= 2.5;
+  if (d.cvdTrend === 'bull') score += 1;
+  else if (d.cvdTrend === 'bear') score -= 1;
+
+  // ── 4. Volatility Squeeze + OI (15% weight) ──
+  // Squeeze amplifies existing directional bias
+  if (d.squeezeOn) {
+    const dirBias = score; // current accumulated bias
+    if (Math.abs(dirBias) > 1) {
+      score *= 1.35; // amplify by 35% when squeeze is active
+    }
+    // If OI is also rising during squeeze = big move incoming
+    if (d.oiDeltaPct !== null && d.oiDeltaPct > 2) {
+      score *= 1.15; // additional 15% amplification
+    }
+  }
+
+  // ── 5. Funding Velocity (10% weight, max ±2 pts, contrarian) ──
+  if (d.fundVelDir === 'rising') {
+    // Funding accelerating up → longs crowding → contrarian short
+    score -= Math.min(Math.abs(d.fundVelSlope || 0) / 0.00015, 2);
+  } else if (d.fundVelDir === 'falling') {
+    // Funding accelerating down → shorts crowding → contrarian long
+    score += Math.min(Math.abs(d.fundVelSlope || 0) / 0.00015, 2);
+  }
+
+  // ── 6. RSI + Divergence (10% weight, max ±3 pts) ──
   const rsiEntries = [
-    { val: d.rsi15m, weight: 1 },
-    { val: d.rsi30m, weight: 1 },
-    { val: d.rsi4h,  weight: 1.5 },
-    { val: d.rsiDaily, weight: 2 },
+    { val: d.rsi15m, weight: 0.5 },
+    { val: d.rsi30m, weight: 0.5 },
+    { val: d.rsi4h,  weight: 1 },
+    { val: d.rsiDaily, weight: 1.5 },
   ];
   for (const r of rsiEntries) {
     if (r.val === null || r.val === undefined) continue;
-    if (r.val <= 20) raw += 3 * r.weight;
-    else if (r.val <= 30) raw += 2 * r.weight;
-    else if (r.val <= 40) raw += 1 * r.weight;
-    else if (r.val >= 80) raw -= 3 * r.weight;
-    else if (r.val >= 70) raw -= 2 * r.weight;
-    else if (r.val >= 60) raw -= 1 * r.weight;
+    if (r.val <= 20) score += 0.5 * r.weight;
+    else if (r.val <= 30) score += 0.3 * r.weight;
+    else if (r.val >= 80) score -= 0.5 * r.weight;
+    else if (r.val >= 70) score -= 0.3 * r.weight;
   }
+  if (d.div15m === 'bull' || d.div30m === 'bull') score += 1;
+  if (d.div15m === 'bear' || d.div30m === 'bear') score -= 1;
 
-  // Divergence component: +2 bull / -2 bear per TF
-  if (d.div15m === 'bull') raw += 2;
-  else if (d.div15m === 'bear') raw -= 2;
-  if (d.div30m === 'bull') raw += 2;
-  else if (d.div30m === 'bear') raw -= 2;
-
-  // CHOCH component: +2 bull / -2 bear per TF, +3 bonus if aligned
-  const chochs = [d.choch15m, d.choch30m, d.choch4h, d.chochDaily];
-  for (const c of chochs) {
-    if (c === 'bull') raw += 2;
-    else if (c === 'bear') raw -= 2;
-  }
+  // ── 7. CHOCH (5% weight, max ±2 pts) ──
   const ch = getChochSummary(d);
   if (ch.aligned && ch.count >= 2) {
-    raw += (ch.dir === 'bull' ? 3 : ch.dir === 'bear' ? -3 : 0);
+    score += (ch.dir === 'bull' ? 2 : ch.dir === 'bear' ? -2 : 0);
+  } else {
+    const chochs = [d.choch15m, d.choch30m, d.choch4h, d.chochDaily];
+    for (const c of chochs) {
+      if (c === 'bull') score += 0.3;
+      else if (c === 'bear') score -= 0.3;
+    }
   }
 
-  // Funding rate (contrarian — crowded side gets squeezed)
+  // ── Volume amplifier (conviction multiplier) ──
+  if (d.relVolume !== null && d.relVolume > 2) {
+    score *= (d.relVolume > 3 ? 1.3 : 1.15);
+  }
+
+  // ── Funding rate extremes (contrarian) ──
   const fr = d.fundingRate;
   if (fr !== null && fr !== undefined && !isNaN(fr)) {
-    if (fr <= -0.0005) raw += 2;
-    else if (fr <= -0.0001) raw += 1;
-    else if (fr >= 0.0005) raw -= 2;
-    else if (fr >= 0.0001) raw -= 1;
+    if (fr <= -0.0005) score += 1;
+    else if (fr >= 0.0005) score -= 1;
   }
 
-  // 24H change (mean reversion at extremes)
-  const chg = d.change24h;
-  if (chg !== null && chg !== undefined && !isNaN(chg)) {
-    if (chg <= -10) raw += 2;
-    else if (chg <= -5) raw += 1;
-    else if (chg >= 10) raw -= 2;
-    else if (chg >= 5) raw -= 1;
-  }
-
-  // Relative volume multiplier (amplifies conviction)
-  if (d.relVolume !== null && d.relVolume > 2) {
-    raw *= (d.relVolume > 3 ? 1.5 : 1.3);
-  }
-
-  return Math.round(raw * 10) / 10;
+  return Math.round(score * 10) / 10;
 }
 
 function getSignalLabel(score) {
@@ -1228,6 +1501,10 @@ function getSignalLabel(score) {
   if (score <= -4) return { label: 'SHORT', cls: 'signal-short', badge: false };
   return { label: 'NEUTRAL', cls: 'signal-neutral', badge: false };
 }
+
+// ============================================================
+// HTML cell renderers
+// ============================================================
 
 function rsiLtfHTML(d) {
   const r15 = d.rsi15m, r30 = d.rsi30m, d15 = d.div15m, d30 = d.div30m;
@@ -1260,6 +1537,69 @@ function signalHTML(score) {
     '<span class="signal-score">' + (score > 0 ? '+' : '') + score + '</span>';
 }
 
+function oiDeltaHTML(d) {
+  if (d.oiDeltaPct === null || d.oiDeltaPct === undefined) return '<span class="oi-flat">\u2014</span>';
+  const lbl = getOIDeltaLabel(d.oiDeltaPct, d.change24h);
+  const pctStr = (d.oiDeltaPct >= 0 ? '+' : '') + d.oiDeltaPct.toFixed(1) + '%';
+  return '<span class="' + lbl.cls + '">' + lbl.label + '</span>' +
+    '<span class="tf-label" style="margin-left:4px">' + pctStr + '</span>';
+}
+
+function liqProxHTML(d) {
+  if (d.liqAbovePct === null || d.liqBelowPct === null ||
+      d.liqAbovePct === undefined || d.liqBelowPct === undefined) {
+    return '<span class="liq-far">\u2014</span>';
+  }
+  function liqCls(pct) {
+    if (pct <= 2) return 'liq-close';
+    if (pct <= 5) return 'liq-medium';
+    return 'liq-far';
+  }
+  return '<span class="' + liqCls(d.liqAbovePct) + '">\u25B2' + d.liqAbovePct.toFixed(1) + '%</span>' +
+    '<span class="tf-label"> / </span>' +
+    '<span class="' + liqCls(d.liqBelowPct) + '">\u25BC' + d.liqBelowPct.toFixed(1) + '%</span>';
+}
+
+function cvdHTML(d) {
+  if (d.cvdTrend === undefined && d.cvdDivergence === undefined) return '<span class="cvd-neutral">\u2014</span>';
+  const trendCls = d.cvdTrend === 'bull' ? 'cvd-bull' : d.cvdTrend === 'bear' ? 'cvd-bear' : 'cvd-neutral';
+  const trendIcon = d.cvdTrend === 'bull' ? '\u25B2' : d.cvdTrend === 'bear' ? '\u25BC' : '\u25C6';
+  const trendLabel = d.cvdTrend === 'bull' ? 'BUY' : d.cvdTrend === 'bear' ? 'SELL' : 'FLAT';
+  let divStr = '';
+  if (d.cvdDivergence === 'bull') {
+    divStr = '<span style="font-size:9px;margin-left:3px;color:var(--green-bright)">DIV\u25B2</span>';
+  } else if (d.cvdDivergence === 'bear') {
+    divStr = '<span style="font-size:9px;margin-left:3px;color:var(--red-bright)">DIV\u25BC</span>';
+  }
+  return '<span class="' + trendCls + '">' + trendIcon + ' ' + trendLabel + '</span>' + divStr;
+}
+
+function squeezeHTML(d) {
+  if (d.squeezeOn === undefined || d.squeezePctile === null || d.squeezePctile === undefined) {
+    return '<span class="squeeze-none">\u2014</span>';
+  }
+  if (d.squeezeOn) {
+    return '<span class="squeeze-active">SQUEEZE</span>';
+  }
+  if (d.squeezeBuilding) {
+    return '<span class="squeeze-building">BUILDING</span>';
+  }
+  const pctStr = Math.round((1 - d.squeezePctile) * 100) + '%';
+  return '<span class="squeeze-none">' + pctStr + '</span>';
+}
+
+function fundVelHTML(d) {
+  if (d.fundVelDir === undefined || d.fundVelDir === null || d.fundVelSlope === null) {
+    return '<span class="fvel-flat">\u2014</span>';
+  }
+  const cls = d.fundVelDir === 'rising' ? 'fvel-rising' : d.fundVelDir === 'falling' ? 'fvel-falling' : 'fvel-flat';
+  const icon = d.fundVelDir === 'rising' ? '\u25B2' : d.fundVelDir === 'falling' ? '\u25BC' : '\u25C6';
+  const label = d.fundVelDir.toUpperCase();
+  const slopeStr = (d.fundVelSlope >= 0 ? '+' : '') + (d.fundVelSlope * 10000).toFixed(2);
+  return '<span class="' + cls + '">' + icon + ' ' + label + '</span>' +
+    '<span class="tf-label" style="margin-left:3px">' + slopeStr + '</span>';
+}
+
 // ============================================================
 // Table building
 // ============================================================
@@ -1283,12 +1623,10 @@ function buildHeader() {
     th.innerHTML = labelHTML + ' <span class="sort-arrow">' + arrow + '</span>';
     if (isActive) th.classList.add('sort-active');
     th.addEventListener('click', (e) => {
-      // Don't trigger sort if we just finished a drag
       if (th._wasDragged) { th._wasDragged = false; return; }
       onSort(col.key, e.shiftKey);
     });
 
-    // Drag-and-drop for column reordering (skip locked symbol col)
     if (!col.locked) {
       th.draggable = true;
       th.addEventListener('dragstart', (e) => {
@@ -1329,14 +1667,12 @@ function buildHeader() {
       const rect = th.getBoundingClientRect();
       const midX = rect.left + rect.width / 2;
       const dropBefore = e.clientX < midX;
-      // Perform the move
       const fromIdx = columnOrder.indexOf(draggedColKey);
       columnOrder.splice(fromIdx, 1);
       let toIdx = columnOrder.indexOf(col.key);
       if (!dropBefore) toIdx += 1;
       columnOrder.splice(toIdx, 0, draggedColKey);
       saveColumnPrefs();
-      // Mark so click doesn't trigger sort
       const draggedTh = tr.querySelector('th[data-key="' + draggedColKey + '"]');
       if (draggedTh) draggedTh._wasDragged = true;
       buildHeader();
@@ -1393,9 +1729,19 @@ function getSortedFiltered() {
     });
   }
 
+  // ── New filters ──
+  if (activeFilters.has('squeeze')) {
+    arr = arr.filter(d => d.squeezeOn === true);
+  }
+  if (activeFilters.has('oi-buildup')) {
+    arr = arr.filter(d => d.oiDeltaPct !== null && d.oiDeltaPct !== undefined && Math.abs(d.oiDeltaPct) > 5);
+  }
+  if (activeFilters.has('cvd-div')) {
+    arr = arr.filter(d => d.cvdDivergence === 'bull' || d.cvdDivergence === 'bear');
+  }
+
   arr.forEach(d => { d._signal = computeSignal(d); });
 
-  // Signal-based filters
   if (activeFilters.has('strong-long')) {
     arr = arr.filter(d => d._signal >= 8);
   }
@@ -1417,8 +1763,36 @@ function getSortedFiltered() {
       return dir * ((ra.val !== null ? Math.abs(ra.val - 50) : -1) - (rb.val !== null ? Math.abs(rb.val - 50) : -1));
     }
     if (key === 'signal') {
-      // Sort by absolute signal strength (most extreme first)
       return dir * (Math.abs(a._signal) - Math.abs(b._signal));
+    }
+    // ── New column sort comparisons ──
+    if (key === 'oiDelta') {
+      const va = a.oiDeltaPct !== null && a.oiDeltaPct !== undefined ? Math.abs(a.oiDeltaPct) : -1;
+      const vb = b.oiDeltaPct !== null && b.oiDeltaPct !== undefined ? Math.abs(b.oiDeltaPct) : -1;
+      return dir * (va - vb);
+    }
+    if (key === 'liqProximity') {
+      const va = (a.liqAbovePct !== null && a.liqBelowPct !== null) ? Math.min(a.liqAbovePct, a.liqBelowPct) : 999;
+      const vb = (b.liqAbovePct !== null && b.liqBelowPct !== null) ? Math.min(b.liqAbovePct, b.liqBelowPct) : 999;
+      return dir * (va - vb);
+    }
+    if (key === 'cvd') {
+      const cvdScore = (d) => {
+        let s = 0;
+        if (d.cvdDivergence === 'bull' || d.cvdDivergence === 'bear') s += 2;
+        if (d.cvdTrend === 'bull' || d.cvdTrend === 'bear') s += 1;
+        return s;
+      };
+      return dir * (cvdScore(a) - cvdScore(b));
+    }
+    if (key === 'squeeze') {
+      const sqScore = (d) => d.squeezeOn ? 2 : d.squeezeBuilding ? 1 : 0;
+      return dir * (sqScore(a) - sqScore(b));
+    }
+    if (key === 'fundVelocity') {
+      const va = a.fundVelSlope !== null && a.fundVelSlope !== undefined ? Math.abs(a.fundVelSlope) : -1;
+      const vb = b.fundVelSlope !== null && b.fundVelSlope !== undefined ? Math.abs(b.fundVelSlope) : -1;
+      return dir * (va - vb);
     }
     let va = a[key], vb = b[key];
     if (va === null || va === undefined) va = dir === 1 ? Infinity : -Infinity;
@@ -1445,7 +1819,6 @@ function renderTable() {
   const cols = getVisibleColumns();
   const totalCount = Object.keys(instruments).length;
 
-  // Update filter result count
   const countEl = document.getElementById('filterResultCount');
   if (activeFilters.size > 0 || searchText) {
     countEl.textContent = arr.length + ' / ' + totalCount;
@@ -1464,7 +1837,6 @@ function renderTable() {
     const tr = document.createElement('tr');
     tr.dataset.symbol = d.symbol;
 
-    // Subtle left-border tick for updated prices (replaces flash)
     if (previousPrices[d.symbol] !== undefined && previousPrices[d.symbol] !== d.price) {
       tr.classList.add('updated');
       setTimeout(() => tr.classList.remove('updated'), 2000);
@@ -1506,6 +1878,21 @@ function renderTable() {
           break;
         case 'signal':
           td.innerHTML = signalHTML(d._signal);
+          break;
+        case 'oiDelta':
+          td.innerHTML = oiDeltaHTML(d);
+          break;
+        case 'liqProximity':
+          td.innerHTML = liqProxHTML(d);
+          break;
+        case 'cvd':
+          td.innerHTML = cvdHTML(d);
+          break;
+        case 'squeeze':
+          td.innerHTML = squeezeHTML(d);
+          break;
+        case 'fundVelocity':
+          td.innerHTML = fundVelHTML(d);
           break;
         case 'fundingRate':
           td.textContent = formatFundingRate(d.fundingRate);
@@ -1561,12 +1948,13 @@ function setRefreshStripeIndeterminate(on) {
   }
 }
 
-function setRSIProgress(done, total) {
-  const el = document.getElementById('rsiProgress');
-  const txt = document.getElementById('rsiProgressText');
+function setDataProgress(done, total, phase) {
+  const el = document.getElementById('dataProgress');
+  const txt = document.getElementById('dataProgressText');
   if (done < 0) { el.style.display = 'none'; setRefreshStripe(-1); return; }
   el.style.display = '';
-  txt.textContent = 'RSI ' + done + '/' + total;
+  const label = phase || 'Data';
+  txt.textContent = label + ' ' + done + '/' + total;
   setRefreshStripe(Math.round(done / total * 100));
 }
 
@@ -1618,6 +2006,18 @@ async function loadTickers() {
       choch30m: existing.choch30m || 'none',
       choch4h: existing.choch4h || 'none',
       chochDaily: existing.chochDaily || 'none',
+      // New fields for the 5 features
+      oiDeltaPct: existing.oiDeltaPct || null,
+      oiDelta4h: existing.oiDelta4h || null,
+      liqAbovePct: existing.liqAbovePct || null,
+      liqBelowPct: existing.liqBelowPct || null,
+      cvdTrend: existing.cvdTrend || 'neutral',
+      cvdDivergence: existing.cvdDivergence || 'none',
+      squeezeOn: existing.squeezeOn || false,
+      squeezeBuilding: existing.squeezeBuilding || false,
+      squeezePctile: existing.squeezePctile || null,
+      fundVelSlope: existing.fundVelSlope || null,
+      fundVelDir: existing.fundVelDir || 'flat',
     };
   });
 
@@ -1639,6 +2039,9 @@ async function loadKlineDataForSymbol(symbol) {
   const inst = instruments[symbol];
   if (!inst) return;
 
+  let candles4hObjs = null;
+  let dailyCloses = null;
+
   for (const iv of intervals) {
     try {
       const candles = await fetchKline(symbol, iv.key, KLINE_LIMIT);
@@ -1652,11 +2055,41 @@ async function loadKlineDataForSymbol(symbol) {
       const highs = candles.map(c => parseFloat(c[2]));
       const lows = candles.map(c => parseFloat(c[3]));
       inst[iv.rsiKey] = computeRSI(closes);
-      const candleObjs = candles.map((c, i) => ({ high: highs[i], low: lows[i], close: closes[i] }));
+      const candleObjs = candles.map((c, i) => ({
+        high: highs[i], low: lows[i], close: closes[i],
+        open: parseFloat(c[1]),
+        volume: parseFloat(c[5]) || parseFloat(c[6]) || 0,
+      }));
       if (iv.divKey) {
         inst[iv.divKey] = detectDivergence(candleObjs, computeRSISeries(closes));
       }
       inst[iv.chochKey] = detectCHOCH(candleObjs);
+
+      // ── Feature 3: CVD from 4H candles ──
+      if (iv.key === '240') {
+        candles4hObjs = candleObjs;
+        const cvdResult = computeCVD(candleObjs);
+        inst.cvdTrend = cvdResult.trend;
+        inst.cvdDivergence = cvdResult.divergence;
+      }
+
+      // ── Feature 2: Liquidation Proximity from 4H swing structure ──
+      if (iv.key === '240' && candles4hObjs) {
+        const liqResult = computeLiquidationProximity(candles4hObjs, inst.price);
+        inst.liqAbovePct = liqResult.above;
+        inst.liqBelowPct = liqResult.below;
+      }
+
+      // ── Feature 4: Volatility Squeeze from Daily candles ──
+      if (iv.key === 'D') {
+        dailyCloses = closes;
+        const sqResult = computeSqueeze(closes);
+        inst.squeezeOn = sqResult.active;
+        inst.squeezeBuilding = sqResult.building || false;
+        inst.squeezePctile = sqResult.pctile;
+      }
+
+      // Relative volume from Daily turnover
       if (iv.key === 'D') {
         const turnovers = candles.map(c => parseFloat(c[6]));
         if (turnovers.length >= 2) {
@@ -1673,23 +2106,64 @@ async function loadKlineDataForSymbol(symbol) {
   }
 }
 
-async function loadAllKlineData(signal) {
+async function loadAdditionalDataForSymbol(symbol) {
+  const inst = instruments[symbol];
+  if (!inst) return;
+
+  // Fetch OI history and Funding history in parallel
+  const results = await Promise.allSettled([
+    fetchOIHistory(symbol).catch(() => null),
+    fetchFundingHistory(symbol).catch(() => null),
+  ]);
+
+  // ── Feature 1: OI Delta ──
+  const oiHistory = results[0].status === 'fulfilled' ? results[0].value : null;
+  if (oiHistory && oiHistory.length >= 2) {
+    const oiDelta = computeOIDelta(oiHistory);
+    inst.oiDeltaPct = oiDelta.pct24h;
+    inst.oiDelta4h = oiDelta.pct4h;
+  }
+
+  // ── Feature 5: Funding Velocity ──
+  const fundingHistory = results[1].status === 'fulfilled' ? results[1].value : null;
+  if (fundingHistory && fundingHistory.length >= 3) {
+    const fv = computeFundingVelocity(fundingHistory);
+    inst.fundVelSlope = fv.slope;
+    inst.fundVelDir = fv.dir;
+  }
+}
+
+async function loadAllData(signal) {
   const symbols = Object.keys(instruments);
   const total = symbols.length;
   let done = 0;
-  setRSIProgress(0, total);
 
+  // Phase 1: Kline data (RSI, divergence, CHOCH, CVD, Squeeze, Liq Prox)
+  setDataProgress(0, total, 'Klines');
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
     if (signal && signal.aborted) return;
     const batch = symbols.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(sym => loadKlineDataForSymbol(sym)));
     done += batch.length;
-    setRSIProgress(done, total);
+    setDataProgress(done, total, 'Klines');
     renderTable();
     if (i + BATCH_SIZE < symbols.length) await new Promise(r => setTimeout(r, BATCH_DELAY));
   }
 
-  setRSIProgress(-1);
+  // Phase 2: OI history + Funding history
+  done = 0;
+  setDataProgress(0, total, 'OI+Fund');
+  for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+    if (signal && signal.aborted) return;
+    const batch = symbols.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(sym => loadAdditionalDataForSymbol(sym)));
+    done += batch.length;
+    setDataProgress(done, total, 'OI+Fund');
+    renderTable();
+    if (i + BATCH_SIZE < symbols.length) await new Promise(r => setTimeout(r, BATCH_DELAY));
+  }
+
+  setDataProgress(-1);
   saveCache();
 }
 
@@ -1702,7 +2176,7 @@ async function fullRefresh() {
     await loadTickers();
     renderTable();
     updateLastRefresh();
-    await loadAllKlineData(rsiAbortController.signal);
+    await loadAllData(rsiAbortController.signal);
     setStatus('Live', false);
   } catch (e) {
     setStatus('Error: ' + e.message, false);
@@ -1731,7 +2205,6 @@ function buildColumnPicker() {
     item.className = 'col-picker-item' + (col.locked ? ' disabled' : '');
     item.dataset.key = col.key;
 
-    // Drag handle
     const handle = document.createElement('span');
     handle.className = 'drag-handle';
     handle.textContent = '\u2261';
@@ -1752,7 +2225,6 @@ function buildColumnPicker() {
     item.appendChild(cb);
     item.appendChild(document.createTextNode(col.label));
 
-    // Drag reorder in picker
     if (!col.locked) {
       item.draggable = true;
       item.addEventListener('dragstart', (e) => {
@@ -1807,7 +2279,6 @@ document.getElementById('colPickerBtn').addEventListener('click', (e) => {
   dropdown.classList.toggle('open');
 });
 
-// Close dropdown on outside click
 document.addEventListener('click', (e) => {
   const dropdown = document.getElementById('colPickerDropdown');
   if (!dropdown.contains(e.target) && e.target !== document.getElementById('colPickerBtn')) {
@@ -1824,7 +2295,6 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
   renderTable();
 });
 
-// Filter pills
 document.querySelectorAll('.filter-pill').forEach(btn => {
   btn.addEventListener('click', () => {
     const f = btn.dataset.filter;
@@ -1840,7 +2310,6 @@ document.querySelectorAll('.filter-pill').forEach(btn => {
   });
 });
 
-// Clear all filters
 document.getElementById('filterClear').addEventListener('click', () => {
   activeFilters.clear();
   document.querySelectorAll('.filter-pill').forEach(btn => btn.classList.remove('active'));
