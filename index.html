@@ -332,6 +332,33 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
   font-size: 9px; color: var(--text-muted); margin-left: 4px; font-weight: 400;
 }
 
+/* ── Setup Grade ── */
+.grade-badge {
+  display: inline-block; padding: 1px 6px; border-radius: 3px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+  font-family: var(--font-mono); line-height: 18px; white-space: nowrap;
+}
+.grade-A {
+  background: rgba(34,197,94,0.22); color: #4ade80;
+  border: 1px solid rgba(34,197,94,0.35); text-shadow: 0 0 6px rgba(34,197,94,0.3);
+}
+.grade-B {
+  background: rgba(34,197,94,0.10); color: var(--green);
+  border: 1px solid rgba(34,197,94,0.18);
+}
+.grade-C {
+  background: rgba(234,179,8,0.10); color: var(--yellow);
+  border: 1px solid rgba(234,179,8,0.15);
+}
+.grade-D { color: var(--text-secondary); }
+.grade-F { color: var(--text-muted); }
+.grade-dir {
+  font-size: 9px; color: var(--text-secondary); margin-left: 3px; font-weight: 400;
+}
+.grade-score {
+  font-size: 9px; color: var(--text-muted); margin-left: 3px; font-weight: 400;
+}
+
 /* ── OI Delta ── */
 .oi-new-long { color: var(--green-bright); font-weight: 600; }
 .oi-new-short { color: var(--red-bright); font-weight: 600; }
@@ -468,6 +495,9 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
       <span class="filter-sep"></span>
       <button class="filter-pill" data-filter="strong-long">Strong Long</button>
       <button class="filter-pill" data-filter="strong-short">Strong Short</button>
+      <span class="filter-sep"></span>
+      <button class="filter-pill" data-filter="grade-a">A Grade</button>
+      <button class="filter-pill" data-filter="grade-b">B+ Grade</button>
       <button class="filter-clear" id="filterClear">Clear all</button>
       <span class="filter-result-count" id="filterResultCount"></span>
     </div>
@@ -551,6 +581,7 @@ const DEFAULT_COLUMNS = [
   { key: 'rsiLtf',        label: 'RSI 15/30m',  align: 'right', locked: false },
   { key: 'rsiHtf',        label: 'RSI HTF',     align: 'right', locked: false },
   { key: 'signal',        label: 'Signal',      align: 'right', locked: false },
+  { key: 'setupGrade',    label: 'Grade',       align: 'right', locked: false },
   { key: 'oiDelta',       label: 'OI Delta',    align: 'right', locked: false },
   { key: 'rangePosition', label: '24h Range',   align: 'right', locked: false },
   { key: 'cvd',           label: 'CVD',         align: 'right', locked: false },
@@ -566,7 +597,7 @@ DEFAULT_COLUMNS.forEach(c => { COLUMN_MAP[c.key] = c; });
 
 // P1: Default to 9 visible columns for new users
 const DEFAULT_VISIBLE_KEYS = new Set([
-  'symbol', 'price', 'change24h', 'volume24h', 'signal',
+  'symbol', 'price', 'change24h', 'volume24h', 'signal', 'setupGrade',
   'oiDelta', 'cvd', 'squeeze', 'fundingRate'
 ]);
 
@@ -1202,10 +1233,194 @@ function getSignalLabel(score) {
   return { label: 'NEUTRAL', cls: 'signal-neutral', badge: false };
 }
 
+// ============================================================
+// Setup Grade — 0-100 directional scoring (4 independent pillars)
+// ============================================================
+// Pillar weights: Trend 35, Squeeze/Momentum 30, Volume 20, RSI 15
+// Each pillar measures an independent dimension to avoid multicollinearity.
+// The grade is directional — it determines the BEST side (long or short)
+// and scores how strong that setup is.
+// ============================================================
+
+function computeSetupGrade(d) {
+  // --- Determine directional bias from existing signal ---
+  var sig = d._signal || computeSignal(d);
+  var isLong = sig >= 0;
+
+  var trendPts = 0;    // max 35
+  var sqzPts = 0;      // max 30
+  var volPts = 0;      // max 20
+  var rsiPts = 0;      // max 15
+
+  // ── PILLAR 1: Trend Alignment (35 pts) ──
+  // CHOCH multi-timeframe alignment is the primary trend signal
+  var ch = getChochSummary(d);
+  var chochDir = ch.dir; // 'bull', 'bear', 'mixed', 'none'
+  var chochAligned = ch.aligned && ch.count >= 2;
+  var trendMatchesBias = (isLong && chochDir === 'bull') || (!isLong && chochDir === 'bear');
+
+  if (chochAligned && trendMatchesBias) {
+    trendPts += 20; // Full alignment across timeframes in our direction
+  } else if (chochAligned) {
+    trendPts += 5;  // Aligned but counter to our direction — some structure
+  } else if (trendMatchesBias && ch.count >= 1) {
+    trendPts += 12; // Partial alignment
+  }
+
+  // CHOCH count bonus — more timeframes confirming = stronger
+  if (trendMatchesBias) {
+    var chochs = [d.choch15m, d.choch30m, d.choch4h, d.chochDaily];
+    var matchDir = isLong ? 'bull' : 'bear';
+    var matchCount = chochs.filter(function(c) { return c === matchDir; }).length;
+    trendPts += Math.min(matchCount * 3, 10); // up to 10 for 3+ TFs
+  }
+
+  // 24H price change confirms direction (up to 5 pts)
+  if (d.change24h !== null && d.change24h !== undefined) {
+    var priceConfirms = (isLong && d.change24h > 0) || (!isLong && d.change24h < 0);
+    if (priceConfirms) {
+      trendPts += Math.min(Math.abs(d.change24h) / 2, 5);
+    }
+  }
+
+  trendPts = Math.min(trendPts, 35);
+
+  // ── PILLAR 2: Squeeze / Momentum (30 pts) ──
+  // Squeeze state
+  if (d.squeezeOn) {
+    sqzPts += 15; // Active squeeze — volatility compressed, big move coming
+  } else if (d.squeezeBuilding) {
+    sqzPts += 7;  // Post-squeeze momentum building
+  } else if (d.squeezePctile !== null && d.squeezePctile !== undefined) {
+    // Near squeeze: lower percentile = closer to squeeze
+    if (d.squeezePctile <= 0.50) sqzPts += 3;
+  }
+
+  // CVD confirms momentum direction (up to 10 pts)
+  var cvdMatchesBias = (isLong && d.cvdTrend === 'bull') || (!isLong && d.cvdTrend === 'bear');
+  var cvdDivMatchesBias = (isLong && d.cvdDivergence === 'bull') || (!isLong && d.cvdDivergence === 'bear');
+  if (cvdDivMatchesBias) sqzPts += 7;  // CVD divergence in our direction — strong
+  else if (cvdMatchesBias) sqzPts += 4; // CVD trend alignment
+
+  // Funding velocity (contrarian, up to 5 pts)
+  // Rising funding = longs crowded = bearish; falling = shorts crowded = bullish
+  var fundConfirms = (isLong && d.fundVelDir === 'falling') || (!isLong && d.fundVelDir === 'rising');
+  if (fundConfirms && d.fundVelSlope !== null) {
+    sqzPts += Math.min(Math.abs(d.fundVelSlope) / 0.00008, 5);
+  }
+
+  sqzPts = Math.min(sqzPts, 30);
+
+  // ── PILLAR 3: Volume / Participation (20 pts) ──
+  // Relative volume — are real players involved?
+  if (d.relVolume !== null && d.relVolume !== undefined) {
+    if (d.relVolume >= 3.0) volPts += 10;       // Surge — 3x+ avg
+    else if (d.relVolume >= 2.0) volPts += 7;    // Strong — 2x+ avg
+    else if (d.relVolume >= 1.5) volPts += 5;    // Solid — above average
+    else if (d.relVolume >= 1.0) volPts += 2;    // Average
+  }
+
+  // OI Delta confirms new money entering in our direction (up to 10 pts)
+  if (d.oiDeltaPct !== null && d.oiDeltaPct !== undefined) {
+    var oiUp = d.oiDeltaPct > 0;
+    var priceUp = d.change24h > 0;
+    var absOI = Math.abs(d.oiDeltaPct);
+    // New longs with price up (long) or new shorts with price down (short)
+    var oiConfirmsBias = (isLong && oiUp && priceUp) || (!isLong && oiUp && !priceUp);
+    if (oiConfirmsBias) {
+      volPts += Math.min(absOI / 1.5, 10);
+    }
+    // Contrarian: short liquidation (OI down, price up) is weak for longs
+    // Give partial credit
+    var contrarian = (isLong && !oiUp && priceUp) || (!isLong && !oiUp && !priceUp);
+    if (contrarian) {
+      volPts += Math.min(absOI / 4, 3);
+    }
+  }
+
+  volPts = Math.min(volPts, 20);
+
+  // ── PILLAR 4: RSI / Timing (15 pts) ──
+  // RSI "sweet spot" — we want momentum but NOT exhaustion
+  // For longs: best is 50-65 (trending, room to run). Penalize >75.
+  // For shorts: best is 35-50. Penalize <25.
+  var rsiVals = [
+    { val: d.rsi4h, w: 2.5 },      // 4H most important
+    { val: d.rsiDaily, w: 2.5 },    // Daily equally important
+    { val: d.rsi15m, w: 1.0 },      // LTF fine-tuning
+    { val: d.rsi30m, w: 1.0 },
+  ];
+
+  var rsiWeightSum = 0, rsiScoreSum = 0;
+  for (var ri = 0; ri < rsiVals.length; ri++) {
+    var rv = rsiVals[ri];
+    if (rv.val === null || rv.val === undefined) continue;
+    rsiWeightSum += rv.w;
+    var rsiScore = 0;
+    if (isLong) {
+      // Long sweet spot: 50-65 = full, 40-50 or 65-75 = partial, <30 or >80 = poor
+      if (rv.val >= 50 && rv.val <= 65) rsiScore = 1.0;
+      else if (rv.val >= 40 && rv.val < 50) rsiScore = 0.6;
+      else if (rv.val > 65 && rv.val <= 75) rsiScore = 0.5;
+      else if (rv.val <= 30) rsiScore = 0.3; // Oversold — potential reversal, partial credit
+      else if (rv.val > 75) rsiScore = 0.1;  // Overbought — risky entry
+      else rsiScore = 0.2; // 30-40 range — weak
+    } else {
+      // Short sweet spot: 35-50 = full, 25-35 or 50-60 = partial, <20 or >70 = poor
+      if (rv.val >= 35 && rv.val <= 50) rsiScore = 1.0;
+      else if (rv.val > 50 && rv.val <= 60) rsiScore = 0.6;
+      else if (rv.val >= 25 && rv.val < 35) rsiScore = 0.5;
+      else if (rv.val >= 70) rsiScore = 0.3; // Overbought — potential reversal
+      else if (rv.val < 25) rsiScore = 0.1;  // Oversold — risky short entry
+      else rsiScore = 0.2; // 60-70 range — weak
+    }
+    rsiScoreSum += rsiScore * rv.w;
+  }
+
+  if (rsiWeightSum > 0) {
+    rsiPts += (rsiScoreSum / rsiWeightSum) * 10; // up to 10 pts from sweet spot
+  }
+
+  // Divergence bonus (up to 5 pts) — divergence in our direction
+  var divMatchesBias = (isLong && (d.div15m === 'bull' || d.div30m === 'bull')) ||
+                       (!isLong && (d.div15m === 'bear' || d.div30m === 'bear'));
+  if (divMatchesBias) {
+    rsiPts += 5;
+    // Double divergence (both 15m and 30m)
+    var bothDiv = (isLong && d.div15m === 'bull' && d.div30m === 'bull') ||
+                  (!isLong && d.div15m === 'bear' && d.div30m === 'bear');
+    if (bothDiv) rsiPts += 2; // Can exceed 15 slightly, capped below
+  }
+
+  rsiPts = Math.min(rsiPts, 15);
+
+  // ── Total & Grade ──
+  var total = Math.round(trendPts + sqzPts + volPts + rsiPts);
+  total = Math.max(0, Math.min(100, total));
+
+  var grade, cls;
+  if (total >= 80) { grade = 'A'; cls = 'grade-A'; }
+  else if (total >= 60) { grade = 'B'; cls = 'grade-B'; }
+  else if (total >= 40) { grade = 'C'; cls = 'grade-C'; }
+  else if (total >= 20) { grade = 'D'; cls = 'grade-D'; }
+  else { grade = 'F'; cls = 'grade-F'; }
+
+  return {
+    grade: grade,
+    score: total,
+    cls: cls,
+    dir: isLong ? 'LONG' : 'SHORT',
+    pillars: { trend: Math.round(trendPts), squeeze: Math.round(sqzPts), volume: Math.round(volPts), rsi: Math.round(rsiPts) }
+  };
+}
+
 // P2: Update signal for a symbol (cached, only called on data change)
 function updateSignalFor(symbol) {
   var d = instruments[symbol];
-  if (d) d._signal = computeSignal(d);
+  if (d) {
+    d._signal = computeSignal(d);
+    d._grade = computeSetupGrade(d);
+  }
 }
 
 // ============================================================
@@ -1260,6 +1475,25 @@ function buildSignalCell(td, score) {
     sc.textContent = (score > 0 ? '+' : '') + score;
     td.appendChild(sc);
   }
+}
+
+function buildGradeCell(td, d) {
+  var g = d._grade;
+  if (!g) { td.className = 'grade-F'; td.textContent = '\u2014'; return; }
+  var badge = document.createElement('span');
+  badge.className = (g.grade === 'A' || g.grade === 'B' || g.grade === 'C') ? ('grade-badge ' + g.cls) : g.cls;
+  badge.textContent = g.grade;
+  td.appendChild(badge);
+  var dir = document.createElement('span');
+  dir.className = 'grade-dir';
+  dir.textContent = g.dir;
+  td.appendChild(dir);
+  var sc = document.createElement('span');
+  sc.className = 'grade-score';
+  sc.textContent = g.score;
+  td.appendChild(sc);
+  // Tooltip with pillar breakdown
+  td.title = 'Trend: ' + g.pillars.trend + '/35  Squeeze: ' + g.pillars.squeeze + '/30  Volume: ' + g.pillars.volume + '/20  RSI: ' + g.pillars.rsi + '/15';
 }
 
 function buildOIDeltaCell(td, d) {
@@ -1498,6 +1732,12 @@ function getSortedFiltered() {
   if (activeFilters.has('strong-short')) {
     arr = arr.filter(function(d) { return (d._signal || 0) <= -8; });
   }
+  if (activeFilters.has('grade-a')) {
+    arr = arr.filter(function(d) { return d._grade && d._grade.score >= 80; });
+  }
+  if (activeFilters.has('grade-b')) {
+    arr = arr.filter(function(d) { return d._grade && d._grade.score >= 60; });
+  }
 
   function compareByKey(a, b, key, dir) {
     if (key === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
@@ -1514,6 +1754,11 @@ function getSortedFiltered() {
     }
     if (key === 'signal') {
       return dir * (Math.abs(a._signal || 0) - Math.abs(b._signal || 0));
+    }
+    if (key === 'setupGrade') {
+      var ga = a._grade ? a._grade.score : -1;
+      var gb = b._grade ? b._grade.score : -1;
+      return dir * (ga - gb);
     }
     if (key === 'oiDelta') {
       var va = a.oiDeltaPct != null ? Math.abs(a.oiDeltaPct) : -1;
@@ -1623,6 +1868,7 @@ function renderTable() {
         case 'rsiLtf':        buildRsiLtfCell(td, d); break;
         case 'rsiHtf':         buildRsiHtfCell(td, d); break;
         case 'signal':         buildSignalCell(td, d._signal || 0); break;
+        case 'setupGrade':     buildGradeCell(td, d); break;
         case 'oiDelta':        buildOIDeltaCell(td, d); break;
         case 'rangePosition':  buildRangePositionCell(td, d); break;
         case 'cvd':            buildCvdCell(td, d); break;
