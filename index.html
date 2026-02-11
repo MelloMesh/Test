@@ -712,7 +712,6 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
       <button class="filter-pill" data-filter="overbought">RSI &ge; 70</button>
       <button class="filter-pill" data-filter="divergence">Divergence</button>
       <button class="filter-pill" data-filter="rvol">RVol &gt; 2x</button>
-      <button class="filter-pill" data-filter="choch">CHOCH</button>
       <button class="filter-pill" data-filter="choch-aligned">CHOCH Aligned</button>
       <button class="filter-pill" data-filter="strong-long">Strong Long</button>
       <button class="filter-pill" data-filter="strong-short">Strong Short</button>
@@ -1404,10 +1403,6 @@ function getSortedFiltered() {
   }
   if (activeFilters.has('rvol')) {
     arr = arr.filter(d => d.relVolume !== null && d.relVolume > 2);
-  }
-  if (activeFilters.has('choch')) {
-    arr = arr.filter(d =>
-      d.choch15m !== 'none' || d.choch30m !== 'none' || d.choch4h !== 'none' || d.chochDaily !== 'none');
   }
   if (activeFilters.has('choch-aligned')) {
     arr = arr.filter(d => {
