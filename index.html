@@ -590,13 +590,6 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
 .div-bear { font-size: 12px; }
 .div-none { color: var(--text-muted); }
 
-/* ── CHOCH ── */
-.choch-bull { color: var(--green); font-weight: 700; }
-.choch-bear { color: var(--red); font-weight: 700; }
-.choch-none { color: var(--text-muted); }
-.choch-mixed { color: var(--yellow); font-weight: 700; }
-.choch-aligned-badge { background: var(--blue-dim); padding: 1px 5px; border-radius: 3px; }
-
 /* ── Condensed column styles ── */
 .tf-label { font-size: 9px; color: var(--text-muted); margin-left: 2px; }
 
@@ -785,7 +778,6 @@ const DEFAULT_COLUMNS = [
   { key: 'relVolume',    label: 'Rel Vol',     align: 'right', locked: false },
   { key: 'rsiLtf',       label: 'RSI 15/30m',  align: 'right', locked: false },
   { key: 'rsiHtf',       label: 'RSI HTF',     align: 'right', locked: false },
-  { key: 'choch',        label: 'CHOCH',       align: 'right', locked: false },
   { key: 'signal',       label: 'Signal',      align: 'right', locked: false },
   { key: 'fundingRate',  label: 'Funding',     align: 'right', locked: false },
   { key: 'openInterest', label: 'OI',          align: 'right', locked: false },
@@ -1255,16 +1247,6 @@ function rsiHtfHTML(d) {
     '<span class="tf-label">' + rsi.tf + '</span>';
 }
 
-function chochCondensedHTML(d) {
-  const ch = getChochSummary(d);
-  if (ch.count === 0) return '<span class="choch-none">\u2014</span>';
-  const cls = ch.dir === 'bull' ? 'choch-bull' : ch.dir === 'bear' ? 'choch-bear' : 'choch-mixed';
-  const label = ch.dir === 'bull' ? 'BUL' : ch.dir === 'bear' ? 'BER' : 'MIX';
-  let html = '<span class="' + cls + '">' + label + ' ' + ch.count + '/' + ch.total + '</span>';
-  if (ch.aligned) html = '<span class="choch-aligned-badge">' + html + '</span>';
-  return html;
-}
-
 function signalHTML(score) {
   const sig = getSignalLabel(score);
   if (sig.badge) {
@@ -1434,10 +1416,6 @@ function getSortedFiltered() {
       const ra = getMostExtremeRSI_HTF(a), rb = getMostExtremeRSI_HTF(b);
       return dir * ((ra.val !== null ? Math.abs(ra.val - 50) : -1) - (rb.val !== null ? Math.abs(rb.val - 50) : -1));
     }
-    if (key === 'choch') {
-      const ca = getChochSummary(a), cb = getChochSummary(b);
-      return dir * ((ca.count + (ca.aligned ? 0.5 : 0)) - (cb.count + (cb.aligned ? 0.5 : 0)));
-    }
     if (key === 'signal') {
       // Sort by absolute signal strength (most extreme first)
       return dir * (Math.abs(a._signal) - Math.abs(b._signal));
@@ -1525,9 +1503,6 @@ function renderTable() {
           break;
         case 'rsiHtf':
           td.innerHTML = rsiHtfHTML(d);
-          break;
-        case 'choch':
-          td.innerHTML = chochCondensedHTML(d);
           break;
         case 'signal':
           td.innerHTML = signalHTML(d._signal);
