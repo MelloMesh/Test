@@ -218,6 +218,13 @@ thead th.col-drag-over-right { box-shadow: inset -3px 0 0 var(--blue); }
 .status-dot.loading {
   background: var(--yellow); animation: pulse-dot 1s ease-in-out infinite;
 }
+.status-dot.ws-live {
+  background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,0.5);
+}
+.status-dot.ws-disconnected { background: var(--red); }
+.status-dot.ws-reconnecting {
+  background: var(--yellow); animation: pulse-dot 1.5s ease-in-out infinite;
+}
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .status-separator { color: var(--border-color); }
 
@@ -484,7 +491,7 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
     <span class="status-separator">&middot;</span>
     <div class="status-item">Updated <span id="lastRefresh">&mdash;</span></div>
     <span class="status-separator">&middot;</span>
-    <div class="status-item">Next <span id="nextRefresh">&mdash;</span></div>
+    <div class="status-item">Indicators <span id="nextRefresh">&mdash;</span></div>
     <div class="status-item" id="dataProgress" style="display:none">
       <span class="status-separator">&middot;</span>
       <span id="dataProgressText"></span>
@@ -523,6 +530,16 @@ const BB_PERIOD = 20;
 const BB_STD = 2;
 const OI_HISTORY_LIMIT = 48;
 const FUNDING_HISTORY_LIMIT = 10;
+
+// ── WebSocket real-time feed ──
+const WS_URL = 'wss://stream.bybit.com/v5/public/linear';
+const WS_PING_INTERVAL = 20000;
+const WS_RECONNECT_BASE_MS = 1000;
+const WS_RECONNECT_MAX_MS = 30000;
+const WS_SUB_BATCH = 10;
+const KLINE_POLL_INTERVAL = 180000;   // 3 min — refresh RSI/divergence/CHOCH/CVD/squeeze
+const OI_POLL_INTERVAL = 300000;      // 5 min — refresh OI delta, funding velocity, L/S ratio
+const RENDER_THROTTLE_MS = 200;       // batch WS updates into renders
 
 // ── Column definitions ──
 const DEFAULT_COLUMNS = [
@@ -611,6 +628,17 @@ let isRefreshing = false;
 let previousPrices = {};
 let rsiAbortController = null;
 let updateTimeouts = new Map(); // P3 fix: track row update timeouts
+
+// WebSocket state
+let wsConnection = null;
+let wsReconnectAttempts = 0;
+let wsPingTimer = null;
+let wsConnected = false;
+let wsFallbackTimer = null;
+let dirtySymbols = new Set();
+let renderThrottleTimer = null;
+let klinePollTimer = null;
+let oiPollTimer = null;
 
 // ============================================================
 // LocalStorage cache
@@ -1655,15 +1683,7 @@ function updateLastRefresh() {
   document.getElementById('lastRefresh').textContent =
     new Date().toLocaleTimeString('en-US', { hour12: false });
 }
-function startCountdown() {
-  nextRefreshAt = Date.now() + REFRESH_INTERVAL;
-  if (countdownTimer) clearInterval(countdownTimer);
-  countdownTimer = setInterval(function() {
-    var remaining = Math.max(0, Math.ceil((nextRefreshAt - Date.now()) / 1000));
-    document.getElementById('nextRefresh').textContent = remaining + 's';
-    if (remaining <= 0) clearInterval(countdownTimer);
-  }, 1000);
-}
+// startCountdown() replaced by startIndicatorCountdown() in WebSocket section
 
 // ============================================================
 // Main data loading
@@ -1887,14 +1907,13 @@ async function fullRefresh() {
     renderTable();
     updateLastRefresh();
     await loadAllData(rsiAbortController.signal);
-    setStatus('Live', false);
+    if (!wsConnected) setStatus('Live', false);
   } catch (e) {
     setStatus('Error: ' + e.message, false);
     console.error('Refresh error:', e);
   } finally {
     isRefreshing = false;
     setRefreshStripe(-1);
-    startCountdown();
   }
 }
 
@@ -2012,6 +2031,230 @@ function updateFilterClearBtn() {
 }
 
 // ============================================================
+// WebSocket real-time data feed
+// ============================================================
+
+function wsConnect() {
+  if (wsConnection && wsConnection.readyState <= 1) return;
+  try {
+    wsConnection = new WebSocket(WS_URL);
+  } catch (e) {
+    console.error('WS connect error:', e);
+    wsScheduleReconnect();
+    return;
+  }
+
+  wsConnection.onopen = function() {
+    wsConnected = true;
+    wsReconnectAttempts = 0;
+    setWsStatus('connected');
+    wsStartPing();
+    wsSubscribeAll();
+    // Stop fallback REST polling if running
+    if (wsFallbackTimer) { clearInterval(wsFallbackTimer); wsFallbackTimer = null; }
+    updateLastRefresh();
+  };
+
+  wsConnection.onmessage = function(event) {
+    try {
+      var msg = JSON.parse(event.data);
+      if (msg.op === 'pong' || msg.op === 'ping') return;
+      if (msg.op === 'subscribe') {
+        if (!msg.success) console.warn('WS sub failed:', msg.ret_msg);
+        return;
+      }
+      if (msg.topic && msg.topic.startsWith('tickers.')) {
+        processWsTicker(msg);
+      }
+    } catch (e) {
+      console.warn('WS message error:', e);
+    }
+  };
+
+  wsConnection.onclose = function(event) {
+    wsConnected = false;
+    wsStopPing();
+    setWsStatus('disconnected');
+    wsScheduleReconnect();
+  };
+
+  wsConnection.onerror = function() {
+    console.error('WS connection error');
+  };
+}
+
+function wsDisconnect() {
+  if (wsConnection) {
+    wsConnection.onclose = null;
+    wsConnection.close();
+    wsConnection = null;
+  }
+  wsConnected = false;
+  wsStopPing();
+}
+
+function wsSend(data) {
+  if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+    wsConnection.send(JSON.stringify(data));
+  }
+}
+
+function wsStartPing() {
+  wsStopPing();
+  wsPingTimer = setInterval(function() { wsSend({ op: 'ping' }); }, WS_PING_INTERVAL);
+}
+
+function wsStopPing() {
+  if (wsPingTimer) { clearInterval(wsPingTimer); wsPingTimer = null; }
+}
+
+function wsScheduleReconnect() {
+  var delay = Math.min(
+    WS_RECONNECT_BASE_MS * Math.pow(2, wsReconnectAttempts),
+    WS_RECONNECT_MAX_MS
+  );
+  wsReconnectAttempts++;
+  setWsStatus('reconnecting');
+  console.log('WS reconnect in', delay, 'ms (attempt ' + wsReconnectAttempts + ')');
+
+  // Start fallback REST polling after 3 failed reconnects
+  if (wsReconnectAttempts >= 3 && !wsFallbackTimer) {
+    console.log('WS offline — falling back to REST polling');
+    wsFallbackTimer = setInterval(function() { fullRefresh(); }, REFRESH_INTERVAL);
+  }
+
+  setTimeout(wsConnect, delay);
+}
+
+function wsSubscribeAll() {
+  var symbols = Object.keys(instruments);
+  var topics = symbols.map(function(s) { return 'tickers.' + s; });
+  for (var i = 0; i < topics.length; i += WS_SUB_BATCH) {
+    wsSend({ op: 'subscribe', args: topics.slice(i, i + WS_SUB_BATCH) });
+  }
+  console.log('WS subscribed to', topics.length, 'ticker streams');
+}
+
+// ── Process real-time ticker updates ──
+
+function processWsTicker(msg) {
+  var data = msg.data;
+  if (!data || !data.symbol) return;
+  var sym = data.symbol;
+  var inst = instruments[sym];
+  if (!inst) return;
+
+  // Update price with flash tracking
+  if (data.lastPrice !== undefined) {
+    var newPrice = parseFloat(data.lastPrice);
+    if (!isNaN(newPrice) && newPrice !== inst.price) {
+      previousPrices[sym] = inst.price;
+      inst.price = newPrice;
+    }
+  }
+
+  // Update ticker fields (delta messages only contain changed fields)
+  if (data.highPrice24h !== undefined) inst.high24h = parseFloat(data.highPrice24h);
+  if (data.lowPrice24h !== undefined) inst.low24h = parseFloat(data.lowPrice24h);
+  if (data.price24hPcnt !== undefined) inst.change24h = parseFloat(data.price24hPcnt) * 100;
+  if (data.turnover24h !== undefined) inst.volume24h = parseFloat(data.turnover24h);
+  if (data.fundingRate !== undefined) inst.fundingRate = parseFloat(data.fundingRate);
+  if (data.openInterest !== undefined) inst.openInterest = parseFloat(data.openInterest) * inst.price;
+
+  // Recompute derived fields
+  var rp = computePricePosition(inst.price, inst.high24h, inst.low24h);
+  inst.rangePosition = rp.position;
+  inst.rangeAbovePct = rp.abovePct;
+  inst.rangeBelowPct = rp.belowPct;
+  updateSignalFor(sym);
+
+  // Throttled render
+  dirtySymbols.add(sym);
+  scheduleThrottledRender();
+}
+
+function scheduleThrottledRender() {
+  if (renderThrottleTimer) return;
+  renderThrottleTimer = setTimeout(function() {
+    renderThrottleTimer = null;
+    if (dirtySymbols.size > 0) {
+      dirtySymbols.clear();
+      renderTable();
+      updateLastRefresh();
+    }
+  }, RENDER_THROTTLE_MS);
+}
+
+// ── WebSocket status display ──
+
+function setWsStatus(state) {
+  var dot = document.getElementById('statusDot');
+  var text = document.getElementById('statusText');
+  dot.classList.remove('loading', 'ws-live', 'ws-disconnected', 'ws-reconnecting');
+  switch (state) {
+    case 'connected':
+      dot.classList.add('ws-live');
+      text.textContent = 'Live \u2014 Streaming';
+      break;
+    case 'disconnected':
+      dot.classList.add('ws-disconnected');
+      text.textContent = 'Disconnected';
+      break;
+    case 'reconnecting':
+      dot.classList.add('ws-reconnecting');
+      text.textContent = 'Reconnecting...';
+      break;
+  }
+}
+
+// ============================================================
+// Slow REST polls (indicators that have no WebSocket stream)
+// ============================================================
+
+async function pollKlineData() {
+  try {
+    var symbols = Object.keys(instruments);
+    for (var i = 0; i < symbols.length; i += BATCH_SIZE) {
+      var batch = symbols.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(function(sym) { return loadKlineDataForSymbol(sym); }));
+      if (i + BATCH_SIZE < symbols.length) await new Promise(function(r) { setTimeout(r, BATCH_DELAY); });
+    }
+    renderTable();
+    saveCache();
+  } catch (e) {
+    console.warn('Kline poll error:', e.message);
+  }
+}
+
+async function pollOIData() {
+  try {
+    var symbols = Object.keys(instruments);
+    for (var i = 0; i < symbols.length; i += BATCH_SIZE) {
+      var batch = symbols.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(function(sym) { return loadAdditionalDataForSymbol(sym); }));
+      if (i + BATCH_SIZE < symbols.length) await new Promise(function(r) { setTimeout(r, BATCH_DELAY); });
+    }
+    renderTable();
+    saveCache();
+  } catch (e) {
+    console.warn('OI poll error:', e.message);
+  }
+}
+
+function startIndicatorCountdown(intervalMs) {
+  nextRefreshAt = Date.now() + intervalMs;
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(function() {
+    var remaining = Math.max(0, Math.ceil((nextRefreshAt - Date.now()) / 1000));
+    var min = Math.floor(remaining / 60);
+    var sec = remaining % 60;
+    document.getElementById('nextRefresh').textContent =
+      min > 0 ? min + ':' + (sec < 10 ? '0' : '') + sec : sec + 's';
+    if (remaining <= 0) clearInterval(countdownTimer);
+  }, 1000);
+}
+
+// ============================================================
 // Init
 // ============================================================
 
@@ -2022,7 +2265,9 @@ buildColumnPicker();
 (async function init() {
   var hadCache = loadCache();
   if (hadCache) document.getElementById('loadingOverlay').classList.add('hidden');
+
   try {
+    // Phase 1: Full REST bootstrap (tickers + all indicators)
     await fullRefresh();
     document.getElementById('loadingOverlay').classList.add('hidden');
   } catch (e) {
@@ -2033,7 +2278,21 @@ buildColumnPicker();
       setStatus('Refresh failed \u2014 showing cached data', false);
     }
   }
-  refreshTimer = setInterval(function() { fullRefresh(); }, REFRESH_INTERVAL);
+
+  // Phase 2: Start WebSocket for real-time ticker streaming
+  wsConnect();
+
+  // Phase 3: Slow REST polls for indicators (no WS stream available)
+  klinePollTimer = setInterval(function() {
+    pollKlineData();
+    startIndicatorCountdown(KLINE_POLL_INTERVAL);
+  }, KLINE_POLL_INTERVAL);
+
+  oiPollTimer = setInterval(function() {
+    pollOIData();
+  }, OI_POLL_INTERVAL);
+
+  startIndicatorCountdown(KLINE_POLL_INTERVAL);
 })();
 </script>
 </body>
