@@ -344,6 +344,67 @@ html, body {
   transform: rotate(45deg);
 }
 
+/* ── Column drag-and-drop (header) ── */
+thead th[draggable="true"] {
+  cursor: grab;
+}
+
+thead th[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+thead th.col-dragging {
+  opacity: 0.35;
+  background: var(--bg-tertiary);
+}
+
+thead th.col-drag-over-left {
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+
+thead th.col-drag-over-right {
+  box-shadow: inset -3px 0 0 var(--blue);
+}
+
+/* ── Column picker drag reorder ── */
+.col-picker-item {
+  position: relative;
+}
+
+.col-picker-item[draggable="true"] {
+  cursor: grab;
+}
+
+.col-picker-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.col-picker-item.picker-dragging {
+  opacity: 0.35;
+  background: var(--bg-tertiary);
+}
+
+.col-picker-item.picker-drag-over {
+  border-top: 2px solid var(--blue);
+}
+
+.col-picker-item .drag-handle {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+  cursor: grab;
+  padding: 0 2px;
+  letter-spacing: 1px;
+  line-height: 1;
+  user-select: none;
+}
+
+.col-picker-item.disabled .drag-handle {
+  visibility: hidden;
+}
+
 /* ── Status Bar ── */
 .status-bar {
   background: var(--bg-secondary);
@@ -619,7 +680,7 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
         Columns
       </button>
       <div class="col-picker-dropdown" id="colPickerDropdown">
-        <div class="picker-header">Toggle columns</div>
+        <div class="picker-header">Toggle &amp; reorder columns</div>
       </div>
     </div>
   </div>
@@ -669,9 +730,10 @@ const DAILY_KLINE_LIMIT = 30;
 const CACHE_KEY = 'bybit_screener_cache';
 const CACHE_TS_KEY = 'bybit_screener_cache_ts';
 const COL_PREFS_KEY = 'bybit_screener_columns';
+const COL_ORDER_KEY = 'bybit_screener_col_order';
 
-// Column definitions (all available)
-const ALL_COLUMNS = [
+// Column definitions (all available) — default order
+const DEFAULT_COLUMNS = [
   { key: 'symbol',       label: 'Symbol',      align: 'left',  locked: true },
   { key: 'price',        label: 'Price',       align: 'right', locked: false },
   { key: 'change24h',    label: '24H Chg%',    align: 'right', locked: false },
@@ -685,11 +747,21 @@ const ALL_COLUMNS = [
   { key: 'openInterest', label: 'OI',          align: 'right', locked: false },
 ];
 
+const COLUMN_MAP = {};
+DEFAULT_COLUMNS.forEach(c => { COLUMN_MAP[c.key] = c; });
+
+// Ordered list of column keys (user can reorder)
+let columnOrder = DEFAULT_COLUMNS.map(c => c.key);
+
 // Active columns (user can toggle)
-let visibleColumns = new Set(ALL_COLUMNS.map(c => c.key));
+let visibleColumns = new Set(columnOrder);
+
+function getAllColumnsOrdered() {
+  return columnOrder.map(k => COLUMN_MAP[k]).filter(Boolean);
+}
 
 function getVisibleColumns() {
-  return ALL_COLUMNS.filter(c => visibleColumns.has(c.key));
+  return columnOrder.filter(k => visibleColumns.has(k)).map(k => COLUMN_MAP[k]);
 }
 
 function loadColumnPrefs() {
@@ -699,7 +771,26 @@ function loadColumnPrefs() {
       const arr = JSON.parse(saved);
       if (Array.isArray(arr) && arr.length > 0) {
         visibleColumns = new Set(arr);
-        visibleColumns.add('symbol'); // always visible
+        visibleColumns.add('symbol');
+      }
+    }
+  } catch (e) { /* ignore */ }
+  try {
+    const savedOrder = localStorage.getItem(COL_ORDER_KEY);
+    if (savedOrder) {
+      const arr = JSON.parse(savedOrder);
+      if (Array.isArray(arr) && arr.length > 0) {
+        // Ensure symbol stays first and all keys present
+        const validKeys = new Set(DEFAULT_COLUMNS.map(c => c.key));
+        const ordered = arr.filter(k => validKeys.has(k));
+        // Add any missing keys
+        DEFAULT_COLUMNS.forEach(c => {
+          if (!ordered.includes(c.key)) ordered.push(c.key);
+        });
+        // Ensure symbol is always first
+        const symIdx = ordered.indexOf('symbol');
+        if (symIdx > 0) { ordered.splice(symIdx, 1); ordered.unshift('symbol'); }
+        columnOrder = ordered;
       }
     }
   } catch (e) { /* ignore */ }
@@ -708,7 +799,21 @@ function loadColumnPrefs() {
 function saveColumnPrefs() {
   try {
     localStorage.setItem(COL_PREFS_KEY, JSON.stringify([...visibleColumns]));
+    localStorage.setItem(COL_ORDER_KEY, JSON.stringify(columnOrder));
   } catch (e) { /* ignore */ }
+}
+
+function moveColumn(fromKey, toKey) {
+  if (fromKey === toKey || fromKey === 'symbol') return;
+  const fromIdx = columnOrder.indexOf(fromKey);
+  const toIdx = columnOrder.indexOf(toKey);
+  if (fromIdx < 0 || toIdx < 0) return;
+  // Don't allow moving before symbol (index 0)
+  if (toIdx === 0) return;
+  columnOrder.splice(fromIdx, 1);
+  const newToIdx = columnOrder.indexOf(toKey);
+  columnOrder.splice(newToIdx + (fromIdx < toIdx ? 1 : 0), 0, fromKey);
+  saveColumnPrefs();
 }
 
 // State
@@ -1066,6 +1171,8 @@ function scoreHTML(score) {
 // Table building
 // ============================================================
 
+let draggedColKey = null;
+
 function buildHeader() {
   const tr = document.getElementById('headerRow');
   tr.innerHTML = '';
@@ -1082,7 +1189,68 @@ function buildHeader() {
     }
     th.innerHTML = labelHTML + ' <span class="sort-arrow">' + arrow + '</span>';
     if (isActive) th.classList.add('sort-active');
-    th.addEventListener('click', (e) => onSort(col.key, e.shiftKey));
+    th.addEventListener('click', (e) => {
+      // Don't trigger sort if we just finished a drag
+      if (th._wasDragged) { th._wasDragged = false; return; }
+      onSort(col.key, e.shiftKey);
+    });
+
+    // Drag-and-drop for column reordering (skip locked symbol col)
+    if (!col.locked) {
+      th.draggable = true;
+      th.addEventListener('dragstart', (e) => {
+        draggedColKey = col.key;
+        th.classList.add('col-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', col.key);
+      });
+      th.addEventListener('dragend', () => {
+        draggedColKey = null;
+        th.classList.remove('col-dragging');
+        tr.querySelectorAll('th').forEach(el => {
+          el.classList.remove('col-drag-over-left', 'col-drag-over-right');
+        });
+      });
+    }
+
+    th.addEventListener('dragover', (e) => {
+      if (!draggedColKey || draggedColKey === col.key || col.locked) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = th.getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      tr.querySelectorAll('th').forEach(el => {
+        el.classList.remove('col-drag-over-left', 'col-drag-over-right');
+      });
+      if (e.clientX < midX) th.classList.add('col-drag-over-left');
+      else th.classList.add('col-drag-over-right');
+    });
+
+    th.addEventListener('dragleave', () => {
+      th.classList.remove('col-drag-over-left', 'col-drag-over-right');
+    });
+
+    th.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (!draggedColKey || draggedColKey === col.key || col.locked) return;
+      const rect = th.getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      const dropBefore = e.clientX < midX;
+      // Perform the move
+      const fromIdx = columnOrder.indexOf(draggedColKey);
+      columnOrder.splice(fromIdx, 1);
+      let toIdx = columnOrder.indexOf(col.key);
+      if (!dropBefore) toIdx += 1;
+      columnOrder.splice(toIdx, 0, draggedColKey);
+      saveColumnPrefs();
+      // Mark so click doesn't trigger sort
+      const draggedTh = tr.querySelector('th[data-key="' + draggedColKey + '"]');
+      if (draggedTh) draggedTh._wasDragged = true;
+      buildHeader();
+      renderTable();
+      buildColumnPicker();
+    });
+
     tr.appendChild(th);
   });
 }
@@ -1457,16 +1625,25 @@ async function fullRefresh() {
 // Column picker
 // ============================================================
 
+let pickerDragKey = null;
+
 function buildColumnPicker() {
   const dropdown = document.getElementById('colPickerDropdown');
-  // Clear existing items (keep header)
   const header = dropdown.querySelector('.picker-header');
   dropdown.innerHTML = '';
   dropdown.appendChild(header);
 
-  ALL_COLUMNS.forEach(col => {
+  getAllColumnsOrdered().forEach(col => {
     const item = document.createElement('label');
     item.className = 'col-picker-item' + (col.locked ? ' disabled' : '');
+    item.dataset.key = col.key;
+
+    // Drag handle
+    const handle = document.createElement('span');
+    handle.className = 'drag-handle';
+    handle.textContent = '\u2261';
+    item.appendChild(handle);
+
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.checked = visibleColumns.has(col.key);
@@ -1481,6 +1658,52 @@ function buildColumnPicker() {
     });
     item.appendChild(cb);
     item.appendChild(document.createTextNode(col.label));
+
+    // Drag reorder in picker
+    if (!col.locked) {
+      item.draggable = true;
+      item.addEventListener('dragstart', (e) => {
+        pickerDragKey = col.key;
+        item.classList.add('picker-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', col.key);
+      });
+      item.addEventListener('dragend', () => {
+        pickerDragKey = null;
+        item.classList.remove('picker-dragging');
+        dropdown.querySelectorAll('.col-picker-item').forEach(el => {
+          el.classList.remove('picker-drag-over');
+        });
+      });
+    }
+
+    item.addEventListener('dragover', (e) => {
+      if (!pickerDragKey || pickerDragKey === col.key || col.locked) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      dropdown.querySelectorAll('.col-picker-item').forEach(el => {
+        el.classList.remove('picker-drag-over');
+      });
+      item.classList.add('picker-drag-over');
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('picker-drag-over');
+    });
+
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (!pickerDragKey || pickerDragKey === col.key || col.locked) return;
+      const fromIdx = columnOrder.indexOf(pickerDragKey);
+      columnOrder.splice(fromIdx, 1);
+      const toIdx = columnOrder.indexOf(col.key);
+      columnOrder.splice(toIdx, 0, pickerDragKey);
+      saveColumnPrefs();
+      buildColumnPicker();
+      buildHeader();
+      renderTable();
+    });
+
     dropdown.appendChild(item);
   });
 }
