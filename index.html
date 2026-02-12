@@ -2199,6 +2199,9 @@ function getSortedFiltered() {
 }
 
 function renderTable() {
+  // Update movers panel first (before any early returns)
+  if (typeof renderMovers === 'function') renderMovers();
+
   var tbody = document.getElementById('tableBody');
   var arr = getSortedFiltered();
   var cols = getVisibleColumns();
@@ -2283,8 +2286,6 @@ function renderTable() {
   tbody.innerHTML = '';
   tbody.appendChild(frag);
 
-  // Update movers panel alongside table
-  if (typeof renderMovers === 'function') renderMovers();
 }
 
 // ============================================================
@@ -2859,23 +2860,23 @@ function renderMovers() {
 
   var data = getMoversData(activeMoversTab);
 
-  // Auto-fallback: if current tab has no data, try 1D (always available from tickers)
-  if (data.gainers.length === 0 && data.losers.length === 0 && activeMoversTab !== '1d') {
-    var fallback = getMoversData('1d');
-    if (fallback.gainers.length > 0 || fallback.losers.length > 0) {
-      data = fallback;
-    }
-  }
-
   var gainersEl = document.getElementById('moversGainers');
   var losersEl = document.getElementById('moversLosers');
   gainersEl.innerHTML = '';
   losersEl.innerHTML = '';
 
   if (data.gainers.length === 0 && data.losers.length === 0) {
+    var allInst = Object.values(instruments);
+    var tfLabel = activeMoversTab.toUpperCase();
+    var changeKey = data.key;
+    var count = allInst.filter(function(d) { return d[changeKey] != null && !isNaN(d[changeKey]); }).length;
     var msg = document.createElement('div');
     msg.style.cssText = 'color:var(--text-muted);font-size:10px;padding:4px 0;';
-    msg.textContent = 'Loading...';
+    if (count === 0 && activeMoversTab !== '1d') {
+      msg.textContent = tfLabel + ' data: waiting for klines to load...';
+    } else {
+      msg.textContent = tfLabel + ': ' + count + '/' + allInst.length + ' loaded';
+    }
     gainersEl.appendChild(msg);
     return;
   }
