@@ -130,6 +130,45 @@ html, body {
   justify-content: center; border-radius: 50%; font-size: 10px; line-height: 1;
   background: rgba(59,130,246,0.2); color: var(--blue); margin-left: 2px;
 }
+.filter-dropdown {
+  position: relative; display: inline-flex;
+}
+.filter-dropdown-btn {
+  background: var(--bg-primary); border: 1px solid var(--border-color);
+  border-radius: 4px; padding: 4px 10px; color: var(--text-secondary);
+  font-size: 11px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  font-family: var(--font-sans); font-weight: 500;
+  display: flex; align-items: center; gap: 5px;
+}
+.filter-dropdown-btn:hover {
+  border-color: var(--text-muted); color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+.filter-dropdown-btn.active {
+  background: var(--blue-dim); border-color: var(--blue); color: var(--blue);
+}
+.filter-dropdown-btn .dd-arrow {
+  font-size: 8px; opacity: 0.6; margin-left: 2px;
+}
+.filter-dropdown-menu {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0;
+  background: var(--bg-secondary); border: 1px solid var(--border-color);
+  border-radius: 6px; padding: 4px 0; z-index: 200; min-width: 130px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.filter-dropdown-menu.open { display: block; }
+.filter-dropdown-menu button {
+  display: block; width: 100%; text-align: left; padding: 6px 12px;
+  background: none; border: none; color: var(--text-secondary);
+  font-size: 11px; font-family: var(--font-sans); cursor: pointer;
+  transition: all 0.1s;
+}
+.filter-dropdown-menu button:hover {
+  background: var(--bg-tertiary); color: var(--text-primary);
+}
+.filter-dropdown-menu button.selected {
+  color: var(--blue); font-weight: 600;
+}
 .filter-clear {
   background: none; border: 1px solid transparent; border-radius: 4px;
   padding: 4px 8px; color: var(--text-muted); font-size: 11px; cursor: pointer;
@@ -470,6 +509,19 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
       <button class="filter-pill" data-filter="oi-buildup">OI Buildup</button>
       <button class="filter-pill" data-filter="cvd-div">CVD Div</button>
       <button class="filter-pill" data-filter="rvol">RVol &gt; 2x</button>
+      <div class="filter-dropdown" id="volFilterDropdown">
+        <button class="filter-dropdown-btn" id="volFilterBtn">Vol <span id="volFilterLabel">All</span> <span class="dd-arrow">&#9662;</span></button>
+        <div class="filter-dropdown-menu" id="volFilterMenu">
+          <button data-vol="0" class="selected">All</button>
+          <button data-vol="1000000">&gt; 1M</button>
+          <button data-vol="5000000">&gt; 5M</button>
+          <button data-vol="10000000">&gt; 10M</button>
+          <button data-vol="25000000">&gt; 25M</button>
+          <button data-vol="50000000">&gt; 50M</button>
+          <button data-vol="100000000">&gt; 100M</button>
+          <button data-vol="500000000">&gt; 500M</button>
+        </div>
+      </div>
       <button class="filter-pill" data-filter="choch-aligned">CHOCH Aligned</button>
       <span class="filter-sep"></span>
       <button class="filter-pill" data-filter="grade-a">A Grade</button>
@@ -626,6 +678,7 @@ function saveColumnPrefs() {
 let instruments = {};
 let sortLevels = [{ key: 'setupGrade', dir: -1 }];
 let activeFilters = new Set();
+let volumeMinFilter = 0;
 let searchText = '';
 let refreshTimer = null;
 let countdownTimer = null;
@@ -1636,6 +1689,10 @@ function getSortedFiltered() {
     arr = arr.filter(function(d) { return d.symbol.includes(q); });
   }
 
+  if (volumeMinFilter > 0) {
+    arr = arr.filter(function(d) { return d.volume24h >= volumeMinFilter; });
+  }
+
   if (activeFilters.has('oversold')) {
     arr = arr.filter(function(d) {
       return (d.rsi15m !== null && d.rsi15m <= 30) || (d.rsi30m !== null && d.rsi30m <= 30) ||
@@ -1759,14 +1816,15 @@ function renderTable() {
   var totalCount = Object.keys(instruments).length;
 
   var countEl = document.getElementById('filterResultCount');
-  countEl.textContent = (activeFilters.size > 0 || searchText) ? arr.length + ' / ' + totalCount : '';
+  var hasAnyFilter = activeFilters.size > 0 || volumeMinFilter > 0 || searchText;
+  countEl.textContent = hasAnyFilter ? arr.length + ' / ' + totalCount : '';
 
   // FIX: Clear pending update timeouts before rebuilding DOM
   updateTimeouts.forEach(function(id) { clearTimeout(id); });
   updateTimeouts.clear();
 
   if (arr.length === 0) {
-    var hint = activeFilters.size > 0
+    var hint = (activeFilters.size > 0 || volumeMinFilter > 0)
       ? 'Try removing some filters to see more results.'
       : searchText ? 'No symbols match "' + searchText + '".' : '';
     tbody.innerHTML = '<tr><td colspan="' + cols.length + '" class="empty-state">' +
@@ -2209,11 +2267,48 @@ document.querySelectorAll('.filter-pill').forEach(function(btn) {
 document.getElementById('filterClear').addEventListener('click', function() {
   activeFilters.clear();
   document.querySelectorAll('.filter-pill').forEach(function(btn) { btn.classList.remove('active'); });
+  // Reset volume dropdown
+  volumeMinFilter = 0;
+  document.getElementById('volFilterLabel').textContent = 'All';
+  document.getElementById('volFilterBtn').classList.remove('active');
+  document.querySelectorAll('#volFilterMenu button').forEach(function(b) { b.classList.remove('selected'); });
+  document.querySelector('#volFilterMenu button[data-vol="0"]').classList.add('selected');
   updateFilterClearBtn(); renderTable();
 });
 
+// ── Volume dropdown filter ──
+(function() {
+  var btn = document.getElementById('volFilterBtn');
+  var menu = document.getElementById('volFilterMenu');
+
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    menu.classList.toggle('open');
+  });
+
+  menu.querySelectorAll('button').forEach(function(item) {
+    item.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var val = parseInt(item.dataset.vol, 10);
+      volumeMinFilter = val;
+      // Update label
+      document.getElementById('volFilterLabel').textContent = val === 0 ? 'All' : item.textContent.trim();
+      // Update selected state
+      menu.querySelectorAll('button').forEach(function(b) { b.classList.remove('selected'); });
+      item.classList.add('selected');
+      // Update button active state
+      btn.classList.toggle('active', val > 0);
+      menu.classList.remove('open');
+      updateFilterClearBtn(); renderTable();
+    });
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', function() { menu.classList.remove('open'); });
+})();
+
 function updateFilterClearBtn() {
-  document.getElementById('filterClear').classList.toggle('visible', activeFilters.size > 0);
+  document.getElementById('filterClear').classList.toggle('visible', activeFilters.size > 0 || volumeMinFilter > 0);
 }
 
 // ============================================================
