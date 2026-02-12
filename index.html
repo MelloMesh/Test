@@ -250,51 +250,7 @@ thead th.col-drag-over-right { box-shadow: inset -3px 0 0 var(--blue); }
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Movers Panel ── */
-.movers-panel {
-  background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);
-  padding: 6px 16px; font-family: var(--font-mono); font-size: 11px;
-  display: none;
-}
-.movers-panel.loaded { display: block; }
-.movers-tabs {
-  display: flex; align-items: center; gap: 2px; margin-bottom: 6px;
-}
-.movers-tab {
-  background: none; border: 1px solid var(--border-color); border-radius: 3px;
-  padding: 2px 8px; color: var(--text-muted); font-size: 10px; font-weight: 600;
-  font-family: var(--font-mono); cursor: pointer; transition: all 0.15s;
-}
-.movers-tab:hover { color: var(--text-secondary); border-color: var(--text-muted); }
-.movers-tab.active {
-  background: var(--blue-dim); border-color: var(--blue); color: var(--blue);
-}
-.movers-toggle {
-  background: none; border: none; color: var(--text-muted); font-size: 10px;
-  cursor: pointer; margin-left: auto; font-family: var(--font-sans);
-  padding: 2px 6px; border-radius: 3px; transition: all 0.15s;
-}
-.movers-toggle:hover { color: var(--text-secondary); background: var(--bg-tertiary); }
-.movers-body { display: flex; gap: 24px; }
-.movers-body.collapsed { display: none; }
-.movers-col { flex: 1; min-width: 0; }
-.movers-col-label {
-  font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;
-  color: var(--text-muted); font-weight: 600; margin-bottom: 3px;
-}
-.movers-list { display: flex; flex-direction: column; gap: 1px; }
-.movers-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 2px 0; cursor: pointer; border-radius: 2px; transition: background 0.1s;
-}
-.movers-row:hover { background: var(--bg-tertiary); }
-.movers-sym {
-  color: var(--text-primary); font-weight: 600; font-size: 11px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.movers-pct { font-weight: 700; font-size: 11px; white-space: nowrap; margin-left: 8px; }
-.movers-pct.up { color: var(--green); }
-.movers-pct.down { color: var(--red); }
+
 .status-item { display: flex; align-items: center; gap: 5px; }
 .status-dot {
   width: 6px; height: 6px; border-radius: 50%;
@@ -735,25 +691,7 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
       <span id="dataProgressText"></span>
     </div>
   </div>
-  <div class="movers-panel" id="moversPanel">
-    <div class="movers-tabs">
-      <button class="movers-tab" data-tf="5m">5m</button>
-      <button class="movers-tab" data-tf="15m">15m</button>
-      <button class="movers-tab" data-tf="4h">4H</button>
-      <button class="movers-tab active" data-tf="1d">1D</button>
-      <button class="movers-toggle" id="moversToggle">Hide</button>
-    </div>
-    <div class="movers-body" id="moversBody">
-      <div class="movers-col">
-        <div class="movers-col-label" style="color:var(--green)">Top Gainers</div>
-        <div class="movers-list" id="moversGainers"></div>
-      </div>
-      <div class="movers-col">
-        <div class="movers-col-label" style="color:var(--red)">Top Losers</div>
-        <div class="movers-list" id="moversLosers"></div>
-      </div>
-    </div>
-  </div>
+
   <div class="table-container" id="tableContainer">
     <div class="loading-overlay" id="loadingOverlay">
       <div class="spinner"></div>
@@ -825,7 +763,7 @@ const DEFAULT_COLUMNS = [
   { key: 'rsi15m',        label: 'RSI 15m',     align: 'right', locked: false },
   { key: 'rsi30m',        label: 'RSI 30m',     align: 'right', locked: false },
   { key: 'rsiHtf',        label: 'RSI HTF',     align: 'right', locked: false },
-  { key: 'marketCap',     label: 'Mkt Cap',     align: 'right', locked: false },
+
   { key: 'oiDelta',       label: 'OI Delta',    align: 'right', locked: false },
   { key: 'rangePosition', label: '24h Range',   align: 'right', locked: false },
   { key: 'cvd',           label: 'CVD',         align: 'right', locked: false },
@@ -841,7 +779,7 @@ DEFAULT_COLUMNS.forEach(c => { COLUMN_MAP[c.key] = c; });
 
 // Default visible columns — clean scan view. Rest available via column picker.
 const DEFAULT_VISIBLE_KEYS = new Set([
-  'symbol', 'price', 'change24h', 'marketCap', 'rsi15m', 'rsi30m',
+  'symbol', 'price', 'change24h', 'rsi15m', 'rsi30m',
   'squeeze', 'fundingRate'
 ]);
 
@@ -893,7 +831,7 @@ function saveColumnPrefs() {
 
 // ── State ──
 let instruments = {};
-let sortLevels = [{ key: 'marketCap', dir: -1 }];
+let sortLevels = [{ key: 'volume24h', dir: -1 }];
 let activeFilters = new Set();
 let volumeMinFilter = 0;
 let searchText = '';
@@ -1004,103 +942,6 @@ async function fetchTickers() {
   return (result.list || []).filter(t => t.symbol.endsWith('USDT'));
 }
 
-// ── Market cap: CoinCap.io primary, CoinLore fallback (free, no API key, CORS) ──
-var marketCapMap = {}; // { 'BTC': 1234567890, 'ETH': ... }
-var MCAP_CACHE_KEY = 'melloscan_mcap';
-var MCAP_CACHE_TS_KEY = 'melloscan_mcap_ts';
-
-async function fetchMarketCaps() {
-  // Check cache first (refresh every 15 min)
-  try {
-    var cached = localStorage.getItem(MCAP_CACHE_KEY);
-    var ts = parseInt(localStorage.getItem(MCAP_CACHE_TS_KEY) || '0', 10);
-    if (cached && Date.now() - ts < 15 * 60 * 1000) {
-      var parsed = JSON.parse(cached);
-      if (Object.keys(parsed).length > 0) {
-        marketCapMap = parsed;
-        console.log('[MelloScan] Market cap from cache:', Object.keys(parsed).length, 'coins');
-        return;
-      }
-    }
-  } catch (e) { /* ignore */ }
-
-  var map = {};
-
-  // Primary: CoinCap.io v2 — up to 2000 coins in a single request
-  try {
-    var resp = await fetch('https://api.coincap.io/v2/assets?limit=2000');
-    if (resp.ok) {
-      var json = await resp.json();
-      if (json.data && json.data.length > 0) {
-        json.data.forEach(function(coin) {
-          if (coin.symbol && coin.marketCapUsd) {
-            var mcap = parseFloat(coin.marketCapUsd);
-            if (!isNaN(mcap) && mcap > 0) {
-              map[coin.symbol.toUpperCase()] = mcap;
-            }
-          }
-        });
-        console.log('[MelloScan] Market cap from CoinCap:', Object.keys(map).length, 'coins');
-      }
-    } else {
-      console.warn('[MelloScan] CoinCap API error:', resp.status);
-    }
-  } catch (e) {
-    console.warn('[MelloScan] CoinCap fetch failed:', e.message);
-  }
-
-  // Fallback: CoinLore — paginated, 100 per page
-  if (Object.keys(map).length < 50) {
-    console.log('[MelloScan] CoinCap insufficient, trying CoinLore fallback...');
-    try {
-      for (var start = 0; start < 800; start += 100) {
-        var url = 'https://api.coinlore.net/api/tickers/?start=' + start + '&limit=100';
-        var resp2 = await fetch(url);
-        if (!resp2.ok) { console.warn('[MelloScan] CoinLore error:', resp2.status); break; }
-        var json2 = await resp2.json();
-        if (!json2.data || json2.data.length === 0) break;
-        json2.data.forEach(function(coin) {
-          if (coin.symbol && coin.market_cap_usd) {
-            var mcap = parseFloat(coin.market_cap_usd);
-            if (!isNaN(mcap) && mcap > 0) {
-              map[coin.symbol.toUpperCase()] = mcap;
-            }
-          }
-        });
-        if (start + 100 < 800) await new Promise(function(r) { setTimeout(r, 200); });
-      }
-      console.log('[MelloScan] Market cap from CoinLore fallback:', Object.keys(map).length, 'coins');
-    } catch (e) {
-      console.warn('[MelloScan] CoinLore fallback failed:', e.message);
-    }
-  }
-
-  if (Object.keys(map).length === 0) {
-    console.warn('[MelloScan] No market cap data retrieved from any source');
-    return;
-  }
-
-  marketCapMap = map;
-
-  // Cache
-  try {
-    localStorage.setItem(MCAP_CACHE_KEY, JSON.stringify(map));
-    localStorage.setItem(MCAP_CACHE_TS_KEY, String(Date.now()));
-  } catch (e) { /* ignore */ }
-}
-
-// Apply market cap data to existing instruments (called after market cap fetch completes)
-function applyMarketCaps() {
-  if (Object.keys(marketCapMap).length === 0) return;
-  Object.keys(instruments).forEach(function(sym) {
-    var baseCoin = sym.replace(/USDT$/, '');
-    var mcap = marketCapMap[baseCoin] || null;
-    if (!mcap && /^\d+/.test(baseCoin)) {
-      mcap = marketCapMap[baseCoin.replace(/^\d+/, '')] || null;
-    }
-    if (mcap) instruments[sym].marketCap = mcap;
-  });
-}
 
 async function fetchKline(symbol, interval, limit) {
   const result = await apiFetch(
@@ -2164,11 +2005,7 @@ function getSortedFiltered() {
       var ra = getMostExtremeRSI_HTF(a), rb = getMostExtremeRSI_HTF(b);
       return dir * ((ra.val !== null ? Math.abs(ra.val - 50) : -1) - (rb.val !== null ? Math.abs(rb.val - 50) : -1));
     }
-    if (key === 'marketCap') {
-      var ma = a.marketCap || 0;
-      var mb = b.marketCap || 0;
-      return dir * (ma - mb);
-    }
+
     if (key === 'oiDelta') {
       var va = a.oiDeltaPct != null ? Math.abs(a.oiDeltaPct) : -1;
       var vb = b.oiDeltaPct != null ? Math.abs(b.oiDeltaPct) : -1;
@@ -2221,8 +2058,6 @@ function getSortedFiltered() {
 }
 
 function renderTable() {
-  // Update movers panel first (before any early returns)
-  if (typeof renderMovers === 'function') renderMovers();
 
   var tbody = document.getElementById('tableBody');
   var arr = getSortedFiltered();
@@ -2281,9 +2116,7 @@ function renderTable() {
         case 'rsi15m':        buildRsiCell(td, d.rsi15m, d.div15m); break;
         case 'rsi30m':        buildRsiCell(td, d.rsi30m, d.div30m); break;
         case 'rsiHtf':         buildRsiHtfCell(td, d); break;
-        case 'marketCap':
-          td.textContent = d.marketCap ? formatVolume(d.marketCap) : '\u2014';
-          break;
+
         case 'oiDelta':        buildOIDeltaCell(td, d); break;
         case 'rangePosition':  buildRangePositionCell(td, d); break;
         case 'cvd':            buildCvdCell(td, d); break;
@@ -2369,18 +2202,9 @@ async function loadTickers() {
     // P0: Compute 24h range position from real ticker data
     var rp = computePricePosition(price, high24h, low24h);
 
-    // Lookup market cap (strip USDT suffix, handle 1000PEPE→PEPE variants)
-    var baseCoin = sym.replace(/USDT$/, '');
-    var mcap = marketCapMap[baseCoin] || null;
-    if (!mcap && /^\d+/.test(baseCoin)) {
-      mcap = marketCapMap[baseCoin.replace(/^\d+/, '')] || null;
-    }
-    if (!mcap) mcap = existing.marketCap || null;
-
     instruments[sym] = {
       symbol: sym,
       price: price,
-      marketCap: mcap,
       change24h: parseFloat(t.price24hPcnt) * 100 || 0,
       volume24h: parseFloat(t.turnover24h) || 0,
       fundingRate: parseFloat(t.fundingRate) || 0,
@@ -2412,12 +2236,6 @@ async function loadTickers() {
       fundVelDir: existing.fundVelDir || 'flat',
       lsRatio: existing.lsRatio || null,
       // Timeframe opens (for live change% calculation)
-      open5m: existing.open5m != null ? existing.open5m : null,
-      open15m: existing.open15m != null ? existing.open15m : null,
-      open4h: existing.open4h != null ? existing.open4h : null,
-      change5m: existing.change5m != null ? existing.change5m : null,
-      change15m: existing.change15m != null ? existing.change15m : null,
-      change4h: existing.change4h != null ? existing.change4h : null,
       _signal: existing._signal || 0,
     };
     updateSignalFor(sym);
@@ -2431,48 +2249,24 @@ async function loadTickers() {
   setRefreshStripeIndeterminate(false);
 }
 
-var _moversDebugLogged = false; // Log first successful change calculation once
-
 async function loadKlineDataForSymbol(symbol) {
   var intervals = [
-    { key: '5', rsiKey: null, divKey: null, chochKey: null, openKey: 'open5m', changeKey: 'change5m' },
-    { key: '15', rsiKey: 'rsi15m', divKey: 'div15m', chochKey: 'choch15m', openKey: 'open15m', changeKey: 'change15m' },
-    { key: '30', rsiKey: 'rsi30m', divKey: 'div30m', chochKey: 'choch30m', openKey: null, changeKey: null },
-    { key: '240', rsiKey: 'rsi4h', divKey: null, chochKey: 'choch4h', openKey: 'open4h', changeKey: 'change4h' },
-    { key: 'D', rsiKey: 'rsiDaily', divKey: null, chochKey: 'chochDaily', openKey: null, changeKey: null },
+    { key: '15', rsiKey: 'rsi15m', divKey: 'div15m', chochKey: 'choch15m' },
+    { key: '30', rsiKey: 'rsi30m', divKey: 'div30m', chochKey: 'choch30m' },
+    { key: '240', rsiKey: 'rsi4h', divKey: null, chochKey: 'choch4h' },
+    { key: 'D', rsiKey: 'rsiDaily', divKey: null, chochKey: 'chochDaily' },
   ];
   if (!instruments[symbol]) return;
 
   for (var ivi = 0; ivi < intervals.length; ivi++) {
     var iv = intervals[ivi];
     try {
-      // 5m candles: only need 2 for open price, skip indicators
-      var limit = iv.key === '5' ? 2 : iv.key === 'D' ? DAILY_KLINE_LIMIT : KLINE_LIMIT;
+      var limit = iv.key === 'D' ? DAILY_KLINE_LIMIT : KLINE_LIMIT;
       var candles = await fetchKline(symbol, iv.key, limit);
 
       // Re-fetch inst after each await to avoid stale references
-      // (processTickers replaces instruments[sym] with a new object)
       var inst = instruments[symbol];
       if (!inst) return;
-
-      // Store open price of current candle for change% calculation
-      if (iv.openKey && candles && candles.length >= 1) {
-        // After .reverse(), array is chronological: [oldest ... newest]
-        var currentCandle = candles[candles.length - 1];
-        var openPrice = parseFloat(currentCandle[1]);
-        if (!isNaN(openPrice) && openPrice > 0 && inst.price > 0) {
-          inst[iv.openKey] = openPrice;
-          inst[iv.changeKey] = ((inst.price - openPrice) / openPrice) * 100;
-          if (!_moversDebugLogged) {
-            _moversDebugLogged = true;
-            console.log('[MelloScan] Movers change set:', symbol, iv.changeKey, '=', inst[iv.changeKey].toFixed(2) + '%',
-              'open:', openPrice, 'price:', inst.price, 'candles:', candles.length);
-          }
-        }
-      }
-
-      // 5m candles don't need indicators — just the open price
-      if (iv.key === '5') continue;
 
       if (!candles || candles.length < RSI_PERIOD + 2) {
         if (iv.rsiKey) inst[iv.rsiKey] = null;
@@ -2603,16 +2397,6 @@ async function loadAllData(signal) {
 
   setDataProgress(-1);
   saveCache();
-
-  // Log movers data availability for debugging
-  var allInst = Object.values(instruments);
-  console.log('[MelloScan] Movers data after klines:', {
-    total: allInst.length,
-    with5m: allInst.filter(function(d) { return d.change5m != null; }).length,
-    with15m: allInst.filter(function(d) { return d.change15m != null; }).length,
-    with4h: allInst.filter(function(d) { return d.change4h != null; }).length,
-    with24h: allInst.filter(function(d) { return d.change24h != null; }).length,
-  });
 }
 
 async function fullRefresh() {
@@ -2621,17 +2405,10 @@ async function fullRefresh() {
   try {
     if (rsiAbortController) rsiAbortController.abort();
     rsiAbortController = new AbortController();
-    // Run market cap fetch in parallel — don't let it block the data pipeline
-    var mcapPromise = fetchMarketCaps().catch(function(e) {
-      console.warn('[MelloScan] Market cap fetch error (non-blocking):', e.message);
-    });
     await loadTickers();
     renderTable();
     updateLastRefresh();
     await loadAllData(rsiAbortController.signal);
-    // Wait for market cap to finish, then apply to instruments
-    await mcapPromise;
-    applyMarketCaps();
     renderTable();
     if (!wsConnected) setStatus('Live', false);
   } catch (e) {
@@ -2860,100 +2637,6 @@ function updateFilterClearBtn() {
 }
 
 // ============================================================
-// Movers Panel — top gainers/losers by timeframe
-// ============================================================
-
-var activeMoversTab = '1d';
-var moversCollapsed = false;
-
-function getMoversData(tf) {
-  var arr = Object.values(instruments);
-  var changeKey;
-  if (tf === '5m') changeKey = 'change5m';
-  else if (tf === '15m') changeKey = 'change15m';
-  else if (tf === '4h') changeKey = 'change4h';
-  else changeKey = 'change24h'; // 1d
-
-  // Filter to instruments that have data for this timeframe
-  var withData = arr.filter(function(d) {
-    return d[changeKey] !== null && d[changeKey] !== undefined && !isNaN(d[changeKey]);
-  });
-
-  // Sort by change descending for gainers, ascending for losers
-  var sorted = withData.slice().sort(function(a, b) { return b[changeKey] - a[changeKey]; });
-  var gainers = sorted.slice(0, 5);
-  var losers = sorted.slice(-5).reverse();
-
-  return { gainers: gainers, losers: losers, key: changeKey };
-}
-
-function renderMovers() {
-  var panel = document.getElementById('moversPanel');
-  // Show panel as soon as instruments exist
-  if (Object.keys(instruments).length > 0) {
-    panel.classList.add('loaded');
-  }
-
-  var data = getMoversData(activeMoversTab);
-
-  var gainersEl = document.getElementById('moversGainers');
-  var losersEl = document.getElementById('moversLosers');
-  gainersEl.innerHTML = '';
-  losersEl.innerHTML = '';
-
-  if (data.gainers.length === 0 && data.losers.length === 0) {
-    var allInst = Object.values(instruments);
-    var tfLabel = activeMoversTab.toUpperCase();
-    var changeKey = data.key;
-    var count = allInst.filter(function(d) { return d[changeKey] != null && !isNaN(d[changeKey]); }).length;
-    var msg = document.createElement('div');
-    msg.style.cssText = 'color:var(--text-muted);font-size:10px;padding:4px 0;';
-    if (count === 0 && activeMoversTab !== '1d') {
-      msg.textContent = tfLabel + ' data: waiting for klines to load...';
-    } else {
-      msg.textContent = tfLabel + ': ' + count + '/' + allInst.length + ' loaded';
-    }
-    gainersEl.appendChild(msg);
-    return;
-  }
-
-  function buildRow(d, changeKey, container) {
-    var row = document.createElement('div');
-    row.className = 'movers-row';
-    var sym = document.createElement('span');
-    sym.className = 'movers-sym';
-    sym.textContent = d.symbol.replace(/USDT$/, '');
-    row.appendChild(sym);
-    var pct = document.createElement('span');
-    var val = d[changeKey];
-    pct.className = 'movers-pct ' + (val >= 0 ? 'up' : 'down');
-    pct.textContent = (val >= 0 ? '+' : '') + val.toFixed(2) + '%';
-    row.appendChild(pct);
-    row.addEventListener('click', function() { openChecklist(d.symbol); });
-    container.appendChild(row);
-  }
-
-  data.gainers.forEach(function(d) { buildRow(d, data.key, gainersEl); });
-  data.losers.forEach(function(d) { buildRow(d, data.key, losersEl); });
-}
-
-// Tab clicks
-document.querySelectorAll('.movers-tab').forEach(function(tab) {
-  tab.addEventListener('click', function() {
-    document.querySelectorAll('.movers-tab').forEach(function(t) { t.classList.remove('active'); });
-    tab.classList.add('active');
-    activeMoversTab = tab.dataset.tf;
-    renderMovers();
-  });
-});
-
-// Toggle collapse
-document.getElementById('moversToggle').addEventListener('click', function() {
-  moversCollapsed = !moversCollapsed;
-  document.getElementById('moversBody').classList.toggle('collapsed', moversCollapsed);
-  this.textContent = moversCollapsed ? 'Show' : 'Hide';
-});
-
 // ============================================================
 // Pre-Trade Checklist — enforces institutional process
 // ============================================================
@@ -3345,10 +3028,6 @@ function processWsTicker(msg) {
   inst.rangeAbovePct = rp.abovePct;
   inst.rangeBelowPct = rp.belowPct;
 
-  // Live change% from stored opens
-  if (inst.open5m) inst.change5m = ((inst.price - inst.open5m) / inst.open5m) * 100;
-  if (inst.open15m) inst.change15m = ((inst.price - inst.open15m) / inst.open15m) * 100;
-  if (inst.open4h) inst.change4h = ((inst.price - inst.open4h) / inst.open4h) * 100;
 
   updateSignalFor(sym);
 
