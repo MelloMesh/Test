@@ -1325,12 +1325,12 @@ function scoreTrendPillar(d) {
   var weights = 0;
 
   // 1a. CHOCH Multi-Timeframe (50% of pillar)
-  // Weighted: Daily 0.40, 4h 0.30, 30m 0.15, 15m 0.10 (sums < 1.0 intentionally)
+  // Weighted: 4h 0.45 (dominant), Daily 0.25, 30m 0.18, 15m 0.12
   var chochEntries = [
-    { val: d.chochDaily, w: 0.40 },
-    { val: d.choch4h,    w: 0.30 },
-    { val: d.choch30m,   w: 0.15 },
-    { val: d.choch15m,   w: 0.10 },
+    { val: d.choch4h,    w: 0.45 },
+    { val: d.chochDaily, w: 0.25 },
+    { val: d.choch30m,   w: 0.18 },
+    { val: d.choch15m,   w: 0.12 },
   ];
   var chochScore = 0;
   var chochW = 0;
@@ -1342,9 +1342,9 @@ function scoreTrendPillar(d) {
   }
   var chochNorm = chochW > 0 ? clamp(chochScore / chochW, -1, 1) : 0;
 
-  // HTF dominance enforcement: if daily CHOCH is bearish, cap bullish at +0.3
-  if (d.chochDaily === 'bear' && chochNorm > 0.3) chochNorm = 0.3;
-  if (d.chochDaily === 'bull' && chochNorm < -0.3) chochNorm = -0.3;
+  // HTF dominance enforcement: 4h CHOCH is the tide — caps opposing LTF signals
+  if (d.choch4h === 'bear' && chochNorm > 0.3) chochNorm = 0.3;
+  if (d.choch4h === 'bull' && chochNorm < -0.3) chochNorm = -0.3;
 
   score += chochNorm * 0.50;
   weights += 0.50;
@@ -1596,11 +1596,11 @@ function computeConfluence(d) {
   var gated = composite * gate;
 
   // Step 4: Conviction multipliers
-  // TF Alignment: daily + 4h CHOCH agreement
+  // TF Alignment: 4h + 30m CHOCH agreement (4h is the dominant HTF)
   var tfMult = 1.0;
-  if (d.chochDaily !== 'none' && d.choch4h !== 'none') {
-    if (d.chochDaily === d.choch4h) tfMult = 1.15; // Aligned — boost
-    else if (d.chochDaily !== 'none' && d.choch4h !== 'none' && d.chochDaily !== d.choch4h) tfMult = 0.70; // Conflicting — dampen
+  if (d.choch4h !== 'none' && d.choch30m !== 'none') {
+    if (d.choch4h === d.choch30m) tfMult = 1.15; // Aligned — boost
+    else tfMult = 0.70; // Conflicting — dampen
   }
   // Squeeze catalyst: only amplify if there's already a signal
   var sqzMult = 1.0;
