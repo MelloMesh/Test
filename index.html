@@ -757,7 +757,8 @@ const DEFAULT_COLUMNS = [
   { key: 'change24h',     label: '24H Chg%',    align: 'right', locked: false },
   { key: 'volume24h',     label: '24H Vol',     align: 'right', locked: false },
   { key: 'relVolume',     label: 'Rel Vol',     align: 'right', locked: false },
-  { key: 'rsiLtf',        label: 'RSI 15/30m',  align: 'right', locked: false },
+  { key: 'rsi15m',        label: 'RSI 15m',     align: 'right', locked: false },
+  { key: 'rsi30m',        label: 'RSI 30m',     align: 'right', locked: false },
   { key: 'rsiHtf',        label: 'RSI HTF',     align: 'right', locked: false },
   { key: 'setupGrade',    label: 'Grade',       align: 'right', locked: false },
   { key: 'edgeScore',     label: 'Edge',        align: 'left',  locked: false },
@@ -776,8 +777,8 @@ DEFAULT_COLUMNS.forEach(c => { COLUMN_MAP[c.key] = c; });
 
 // Default visible: 7 columns — clean scan view. Rest available via column picker.
 const DEFAULT_VISIBLE_KEYS = new Set([
-  'symbol', 'price', 'change24h', 'setupGrade', 'edgeScore',
-  'squeeze', 'fundingRate'
+  'symbol', 'price', 'change24h', 'rsi15m', 'rsi30m',
+  'setupGrade', 'edgeScore', 'squeeze', 'fundingRate'
 ]);
 
 let columnOrder = DEFAULT_COLUMNS.map(c => c.key);
@@ -1649,27 +1650,21 @@ function updateSignalFor(symbol) {
 // P3: DOM cell builders (XSS hardening — no innerHTML for data)
 // ============================================================
 
-function buildRsiLtfCell(td, d) {
-  function addRsi(container, val, div) {
-    var span = document.createElement('span');
-    if (val === null || val === undefined) {
-      span.className = 'rsi-neutral'; span.textContent = '\u2014';
-    } else {
-      span.className = rsiClass(val); span.textContent = val.toFixed(1);
-    }
-    container.appendChild(span);
-    if (div === 'bull' || div === 'bear') {
-      var icon = document.createElement('span');
-      icon.style.cssText = 'font-size:9px;margin-left:1px';
-      icon.textContent = div === 'bull' ? '\u{1F7E2}' : '\u{1F534}';
-      container.appendChild(icon);
-    }
+function buildRsiCell(td, val, div) {
+  if (val === null || val === undefined) {
+    td.className = 'rsi-neutral'; td.textContent = '\u2014'; return;
   }
-  addRsi(td, d.rsi15m, d.div15m);
-  var sep = document.createElement('span');
-  sep.className = 'tf-label'; sep.textContent = '/';
-  td.appendChild(sep);
-  addRsi(td, d.rsi30m, d.div30m);
+  var span = document.createElement('span');
+  span.className = rsiClass(val);
+  span.textContent = val.toFixed(1);
+  td.appendChild(span);
+  if (div === 'bull' || div === 'bear') {
+    var dot = document.createElement('span');
+    dot.style.cssText = 'display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:4px;vertical-align:middle;';
+    dot.style.background = div === 'bull' ? 'var(--green)' : 'var(--red)';
+    dot.title = div === 'bull' ? 'Bullish divergence' : 'Bearish divergence';
+    td.appendChild(dot);
+  }
 }
 
 function buildRsiHtfCell(td, d) {
@@ -2001,11 +1996,9 @@ function getSortedFiltered() {
 
   function compareByKey(a, b, key, dir) {
     if (key === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
-    if (key === 'rsiLtf') {
-      var ea = [a.rsi15m, a.rsi30m].filter(function(v) { return v !== null; });
-      var eb = [b.rsi15m, b.rsi30m].filter(function(v) { return v !== null; });
-      var va = ea.length > 0 ? Math.max.apply(null, ea.map(function(r) { return Math.abs(r - 50); })) : -1;
-      var vb = eb.length > 0 ? Math.max.apply(null, eb.map(function(r) { return Math.abs(r - 50); })) : -1;
+    if (key === 'rsi15m' || key === 'rsi30m') {
+      var va = a[key] != null ? Math.abs(a[key] - 50) : -1;
+      var vb = b[key] != null ? Math.abs(b[key] - 50) : -1;
       return dir * (va - vb);
     }
     if (key === 'rsiHtf') {
@@ -2128,7 +2121,8 @@ function renderTable() {
           td.textContent = d.relVolume !== null ? d.relVolume.toFixed(1) + 'x' : '\u2014';
           td.className = rvolClass(d.relVolume);
           break;
-        case 'rsiLtf':        buildRsiLtfCell(td, d); break;
+        case 'rsi15m':        buildRsiCell(td, d.rsi15m, d.div15m); break;
+        case 'rsi30m':        buildRsiCell(td, d.rsi30m, d.div30m); break;
         case 'rsiHtf':         buildRsiHtfCell(td, d); break;
         case 'setupGrade':     buildGradeCell(td, d); break;
         case 'edgeScore':      buildEdgeCell(td, d); break;
