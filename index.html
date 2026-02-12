@@ -151,9 +151,9 @@ html, body {
   font-size: 8px; opacity: 0.6; margin-left: 2px;
 }
 .filter-dropdown-menu {
-  display: none; position: absolute; top: calc(100% + 4px); left: 0;
+  display: none; position: fixed;
   background: var(--bg-secondary); border: 1px solid var(--border-color);
-  border-radius: 6px; padding: 4px 0; z-index: 200; min-width: 130px;
+  border-radius: 6px; padding: 4px 0; z-index: 9999; min-width: 130px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
 }
 .filter-dropdown-menu.open { display: block; }
@@ -2283,6 +2283,12 @@ document.getElementById('filterClear').addEventListener('click', function() {
 
   btn.addEventListener('click', function(e) {
     e.stopPropagation();
+    var isOpen = menu.classList.contains('open');
+    if (!isOpen) {
+      var rect = btn.getBoundingClientRect();
+      menu.style.top = (rect.bottom + 4) + 'px';
+      menu.style.left = rect.left + 'px';
+    }
     menu.classList.toggle('open');
   });
 
