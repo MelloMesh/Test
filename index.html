@@ -1004,7 +1004,7 @@ async function fetchTickers() {
   return (result.list || []).filter(t => t.symbol.endsWith('USDT'));
 }
 
-// ── Market cap from CoinLore (free, no API key, CORS enabled) ──
+// ── Market cap: CoinCap.io primary, CoinLore fallback (free, no API key, CORS) ──
 var marketCapMap = {}; // { 'BTC': 1234567890, 'ETH': ... }
 var MCAP_CACHE_KEY = 'melloscan_mcap';
 var MCAP_CACHE_TS_KEY = 'melloscan_mcap_ts';
@@ -1024,41 +1024,63 @@ async function fetchMarketCaps() {
     }
   } catch (e) { /* ignore */ }
 
-  var allCoins = [];
+  var map = {};
+
+  // Primary: CoinCap.io v2 — up to 2000 coins in a single request
   try {
-    // CoinLore API: max 100 per request, paginate with start param
-    for (var start = 0; start < 800; start += 100) {
-      var url = 'https://api.coinlore.net/api/tickers/?start=' + start + '&limit=100';
-      var resp = await fetch(url);
-      if (!resp.ok) {
-        console.warn('[MelloScan] CoinLore API error:', resp.status);
-        break;
-      }
+    var resp = await fetch('https://api.coincap.io/v2/assets?limit=2000');
+    if (resp.ok) {
       var json = await resp.json();
-      if (!json.data || json.data.length === 0) break;
-      allCoins = allCoins.concat(json.data);
-      if (start + 100 < 800) await new Promise(function(r) { setTimeout(r, 200); });
+      if (json.data && json.data.length > 0) {
+        json.data.forEach(function(coin) {
+          if (coin.symbol && coin.marketCapUsd) {
+            var mcap = parseFloat(coin.marketCapUsd);
+            if (!isNaN(mcap) && mcap > 0) {
+              map[coin.symbol.toUpperCase()] = mcap;
+            }
+          }
+        });
+        console.log('[MelloScan] Market cap from CoinCap:', Object.keys(map).length, 'coins');
+      }
+    } else {
+      console.warn('[MelloScan] CoinCap API error:', resp.status);
     }
   } catch (e) {
-    console.warn('[MelloScan] Market cap fetch failed:', e.message);
+    console.warn('[MelloScan] CoinCap fetch failed:', e.message);
   }
 
-  if (allCoins.length === 0) {
-    console.warn('[MelloScan] No market cap data retrieved');
+  // Fallback: CoinLore — paginated, 100 per page
+  if (Object.keys(map).length < 50) {
+    console.log('[MelloScan] CoinCap insufficient, trying CoinLore fallback...');
+    try {
+      for (var start = 0; start < 800; start += 100) {
+        var url = 'https://api.coinlore.net/api/tickers/?start=' + start + '&limit=100';
+        var resp2 = await fetch(url);
+        if (!resp2.ok) { console.warn('[MelloScan] CoinLore error:', resp2.status); break; }
+        var json2 = await resp2.json();
+        if (!json2.data || json2.data.length === 0) break;
+        json2.data.forEach(function(coin) {
+          if (coin.symbol && coin.market_cap_usd) {
+            var mcap = parseFloat(coin.market_cap_usd);
+            if (!isNaN(mcap) && mcap > 0) {
+              map[coin.symbol.toUpperCase()] = mcap;
+            }
+          }
+        });
+        if (start + 100 < 800) await new Promise(function(r) { setTimeout(r, 200); });
+      }
+      console.log('[MelloScan] Market cap from CoinLore fallback:', Object.keys(map).length, 'coins');
+    } catch (e) {
+      console.warn('[MelloScan] CoinLore fallback failed:', e.message);
+    }
+  }
+
+  if (Object.keys(map).length === 0) {
+    console.warn('[MelloScan] No market cap data retrieved from any source');
     return;
   }
 
-  var map = {};
-  allCoins.forEach(function(coin) {
-    if (coin.symbol && coin.market_cap_usd) {
-      var mcap = parseFloat(coin.market_cap_usd);
-      if (!isNaN(mcap) && mcap > 0) {
-        map[coin.symbol.toUpperCase()] = mcap;
-      }
-    }
-  });
   marketCapMap = map;
-  console.log('[MelloScan] Market cap loaded:', Object.keys(map).length, 'coins');
 
   // Cache
   try {
