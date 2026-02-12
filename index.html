@@ -2035,11 +2035,8 @@ function getSortedFiltered() {
 
   if (activeFilters.has('ob-os')) {
     arr = arr.filter(function(d) {
-      var rsis = [d.rsi15m, d.rsi30m, d.rsi4h, d.rsiDaily];
-      for (var i = 0; i < rsis.length; i++) {
-        if (rsis[i] !== null && (rsis[i] <= 30 || rsis[i] >= 70)) return true;
-      }
-      return false;
+      return (d.rsi15m !== null && (d.rsi15m <= 30 || d.rsi15m >= 70)) ||
+             (d.rsi30m !== null && (d.rsi30m <= 30 || d.rsi30m >= 70));
     });
   }
   if (activeFilters.has('divergence')) {
