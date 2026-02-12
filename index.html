@@ -1004,7 +1004,7 @@ async function fetchTickers() {
   return (result.list || []).filter(t => t.symbol.endsWith('USDT'));
 }
 
-// ── Market cap from CoinCap.io (free, no API key, CORS enabled) ──
+// ── Market cap from CoinLore (free, no API key, CORS enabled) ──
 var marketCapMap = {}; // { 'BTC': 1234567890, 'ETH': ... }
 var MCAP_CACHE_KEY = 'melloscan_mcap';
 var MCAP_CACHE_TS_KEY = 'melloscan_mcap_ts';
@@ -1018,53 +1018,66 @@ async function fetchMarketCaps() {
       var parsed = JSON.parse(cached);
       if (Object.keys(parsed).length > 0) {
         marketCapMap = parsed;
-        console.log('Market cap loaded from cache:', Object.keys(parsed).length, 'coins');
+        console.log('[MelloScan] Market cap from cache:', Object.keys(parsed).length, 'coins');
         return;
       }
     }
   } catch (e) { /* ignore */ }
 
-  var allAssets = [];
+  var allCoins = [];
   try {
-    // CoinCap v2: 2000 limit per page, paginate with offset
-    for (var offset = 0; offset < 750; offset += 250) {
-      var url = 'https://api.coincap.io/v2/assets?limit=250&offset=' + offset;
+    // CoinLore API: max 100 per request, paginate with start param
+    for (var start = 0; start < 800; start += 100) {
+      var url = 'https://api.coinlore.net/api/tickers/?start=' + start + '&limit=100';
       var resp = await fetch(url);
       if (!resp.ok) {
-        console.warn('CoinCap API error:', resp.status, resp.statusText);
+        console.warn('[MelloScan] CoinLore API error:', resp.status);
         break;
       }
       var json = await resp.json();
       if (!json.data || json.data.length === 0) break;
-      allAssets = allAssets.concat(json.data);
-      if (offset + 250 < 750) await new Promise(function(r) { setTimeout(r, 300); });
+      allCoins = allCoins.concat(json.data);
+      if (start + 100 < 800) await new Promise(function(r) { setTimeout(r, 200); });
     }
   } catch (e) {
-    console.warn('CoinCap market cap fetch failed:', e.message);
+    console.warn('[MelloScan] Market cap fetch failed:', e.message);
   }
 
-  if (allAssets.length === 0) {
-    console.warn('No market cap data retrieved');
+  if (allCoins.length === 0) {
+    console.warn('[MelloScan] No market cap data retrieved');
     return;
   }
 
   var map = {};
-  allAssets.forEach(function(asset) {
-    if (asset.symbol && asset.marketCapUsd) {
-      var mcap = parseFloat(asset.marketCapUsd);
+  allCoins.forEach(function(coin) {
+    if (coin.symbol && coin.market_cap_usd) {
+      var mcap = parseFloat(coin.market_cap_usd);
       if (!isNaN(mcap) && mcap > 0) {
-        map[asset.symbol.toUpperCase()] = mcap;
+        map[coin.symbol.toUpperCase()] = mcap;
       }
     }
   });
   marketCapMap = map;
-  console.log('Market cap loaded:', Object.keys(map).length, 'coins');
+  console.log('[MelloScan] Market cap loaded:', Object.keys(map).length, 'coins');
 
   // Cache
   try {
     localStorage.setItem(MCAP_CACHE_KEY, JSON.stringify(map));
     localStorage.setItem(MCAP_CACHE_TS_KEY, String(Date.now()));
   } catch (e) { /* ignore */ }
+}
+
+// Apply market cap data to existing instruments (called after market cap fetch completes)
+function applyMarketCaps() {
+  if (Object.keys(marketCapMap).length === 0) return;
+  Object.keys(instruments).forEach(function(sym) {
+    var baseCoin = sym.replace(/USDT$/, '');
+    var mcap = marketCapMap[baseCoin] || null;
+    if (!mcap && /^\d+/.test(baseCoin)) {
+      mcap = marketCapMap[baseCoin.replace(/^\d+/, '')] || null;
+    }
+    if (mcap) instruments[sym].marketCap = mcap;
+  });
 }
 
 async function fetchKline(symbol, interval, limit) {
@@ -2415,8 +2428,10 @@ async function loadKlineDataForSymbol(symbol) {
 
       // Store open price of current candle for change% calculation
       if (iv.openKey && candles && candles.length >= 1) {
-        var openPrice = parseFloat(candles[candles.length - 1][1]); // last after reverse = most recent, [1] = open
-        if (!isNaN(openPrice) && openPrice > 0) {
+        // After .reverse(), array is chronological: [oldest ... newest]
+        var currentCandle = candles[candles.length - 1];
+        var openPrice = parseFloat(currentCandle[1]);
+        if (!isNaN(openPrice) && openPrice > 0 && inst.price > 0) {
           inst[iv.openKey] = openPrice;
           inst[iv.changeKey] = ((inst.price - openPrice) / openPrice) * 100;
         }
@@ -2551,6 +2566,16 @@ async function loadAllData(signal) {
 
   setDataProgress(-1);
   saveCache();
+
+  // Log movers data availability for debugging
+  var allInst = Object.values(instruments);
+  console.log('[MelloScan] Movers data after klines:', {
+    total: allInst.length,
+    with5m: allInst.filter(function(d) { return d.change5m != null; }).length,
+    with15m: allInst.filter(function(d) { return d.change15m != null; }).length,
+    with4h: allInst.filter(function(d) { return d.change4h != null; }).length,
+    with24h: allInst.filter(function(d) { return d.change24h != null; }).length,
+  });
 }
 
 async function fullRefresh() {
@@ -2559,11 +2584,18 @@ async function fullRefresh() {
   try {
     if (rsiAbortController) rsiAbortController.abort();
     rsiAbortController = new AbortController();
-    await fetchMarketCaps();
+    // Run market cap fetch in parallel — don't let it block the data pipeline
+    var mcapPromise = fetchMarketCaps().catch(function(e) {
+      console.warn('[MelloScan] Market cap fetch error (non-blocking):', e.message);
+    });
     await loadTickers();
     renderTable();
     updateLastRefresh();
     await loadAllData(rsiAbortController.signal);
+    // Wait for market cap to finish, then apply to instruments
+    await mcapPromise;
+    applyMarketCaps();
+    renderTable();
     if (!wsConnected) setStatus('Live', false);
   } catch (e) {
     setStatus('Error: ' + e.message, false);
@@ -2826,6 +2858,15 @@ function renderMovers() {
   }
 
   var data = getMoversData(activeMoversTab);
+
+  // Auto-fallback: if current tab has no data, try 1D (always available from tickers)
+  if (data.gainers.length === 0 && data.losers.length === 0 && activeMoversTab !== '1d') {
+    var fallback = getMoversData('1d');
+    if (fallback.gainers.length > 0 || fallback.losers.length > 0) {
+      data = fallback;
+    }
+  }
+
   var gainersEl = document.getElementById('moversGainers');
   var losersEl = document.getElementById('moversLosers');
   gainersEl.innerHTML = '';
