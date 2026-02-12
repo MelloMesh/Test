@@ -249,6 +249,52 @@ thead th.col-drag-over-right { box-shadow: inset -3px 0 0 var(--blue); }
   font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Movers Panel ── */
+.movers-panel {
+  background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);
+  padding: 6px 16px; font-family: var(--font-mono); font-size: 11px;
+  display: none;
+}
+.movers-panel.loaded { display: block; }
+.movers-tabs {
+  display: flex; align-items: center; gap: 2px; margin-bottom: 6px;
+}
+.movers-tab {
+  background: none; border: 1px solid var(--border-color); border-radius: 3px;
+  padding: 2px 8px; color: var(--text-muted); font-size: 10px; font-weight: 600;
+  font-family: var(--font-mono); cursor: pointer; transition: all 0.15s;
+}
+.movers-tab:hover { color: var(--text-secondary); border-color: var(--text-muted); }
+.movers-tab.active {
+  background: var(--blue-dim); border-color: var(--blue); color: var(--blue);
+}
+.movers-toggle {
+  background: none; border: none; color: var(--text-muted); font-size: 10px;
+  cursor: pointer; margin-left: auto; font-family: var(--font-sans);
+  padding: 2px 6px; border-radius: 3px; transition: all 0.15s;
+}
+.movers-toggle:hover { color: var(--text-secondary); background: var(--bg-tertiary); }
+.movers-body { display: flex; gap: 24px; }
+.movers-body.collapsed { display: none; }
+.movers-col { flex: 1; min-width: 0; }
+.movers-col-label {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-muted); font-weight: 600; margin-bottom: 3px;
+}
+.movers-list { display: flex; flex-direction: column; gap: 1px; }
+.movers-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 2px 0; cursor: pointer; border-radius: 2px; transition: background 0.1s;
+}
+.movers-row:hover { background: var(--bg-tertiary); }
+.movers-sym {
+  color: var(--text-primary); font-weight: 600; font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.movers-pct { font-weight: 700; font-size: 11px; white-space: nowrap; margin-left: 8px; }
+.movers-pct.up { color: var(--green); }
+.movers-pct.down { color: var(--red); }
 .status-item { display: flex; align-items: center; gap: 5px; }
 .status-dot {
   width: 6px; height: 6px; border-radius: 50%;
@@ -687,6 +733,25 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
     <div class="status-item" id="dataProgress" style="display:none">
       <span class="status-separator">&middot;</span>
       <span id="dataProgressText"></span>
+    </div>
+  </div>
+  <div class="movers-panel" id="moversPanel">
+    <div class="movers-tabs">
+      <button class="movers-tab active" data-tf="5m">5m</button>
+      <button class="movers-tab" data-tf="15m">15m</button>
+      <button class="movers-tab" data-tf="4h">4H</button>
+      <button class="movers-tab" data-tf="1d">1D</button>
+      <button class="movers-toggle" id="moversToggle">Hide</button>
+    </div>
+    <div class="movers-body" id="moversBody">
+      <div class="movers-col">
+        <div class="movers-col-label" style="color:var(--green)">Top Gainers</div>
+        <div class="movers-list" id="moversGainers"></div>
+      </div>
+      <div class="movers-col">
+        <div class="movers-col-label" style="color:var(--red)">Top Losers</div>
+        <div class="movers-list" id="moversLosers"></div>
+      </div>
     </div>
   </div>
   <div class="table-container" id="tableContainer">
@@ -2190,6 +2255,9 @@ function renderTable() {
   }
   tbody.innerHTML = '';
   tbody.appendChild(frag);
+
+  // Update movers panel alongside table
+  if (typeof renderMovers === 'function') renderMovers();
 }
 
 // ============================================================
@@ -2289,6 +2357,13 @@ async function loadTickers() {
       fundVelSlope: existing.fundVelSlope || null,
       fundVelDir: existing.fundVelDir || 'flat',
       lsRatio: existing.lsRatio || null,
+      // Timeframe opens (for live change% calculation)
+      open5m: existing.open5m || null,
+      open15m: existing.open15m || null,
+      open4h: existing.open4h || null,
+      change5m: existing.change5m || null,
+      change15m: existing.change15m || null,
+      change4h: existing.change4h || null,
       _signal: existing._signal || 0,
     };
     updateSignalFor(sym);
@@ -2304,10 +2379,11 @@ async function loadTickers() {
 
 async function loadKlineDataForSymbol(symbol) {
   var intervals = [
-    { key: '15', rsiKey: 'rsi15m', divKey: 'div15m', chochKey: 'choch15m' },
-    { key: '30', rsiKey: 'rsi30m', divKey: 'div30m', chochKey: 'choch30m' },
-    { key: '240', rsiKey: 'rsi4h', divKey: null, chochKey: 'choch4h' },
-    { key: 'D', rsiKey: 'rsiDaily', divKey: null, chochKey: 'chochDaily' },
+    { key: '5', rsiKey: null, divKey: null, chochKey: null, openKey: 'open5m', changeKey: 'change5m' },
+    { key: '15', rsiKey: 'rsi15m', divKey: 'div15m', chochKey: 'choch15m', openKey: 'open15m', changeKey: 'change15m' },
+    { key: '30', rsiKey: 'rsi30m', divKey: 'div30m', chochKey: 'choch30m', openKey: null, changeKey: null },
+    { key: '240', rsiKey: 'rsi4h', divKey: null, chochKey: 'choch4h', openKey: 'open4h', changeKey: 'change4h' },
+    { key: 'D', rsiKey: 'rsiDaily', divKey: null, chochKey: 'chochDaily', openKey: null, changeKey: null },
   ];
   var inst = instruments[symbol];
   if (!inst) return;
@@ -2315,19 +2391,32 @@ async function loadKlineDataForSymbol(symbol) {
   for (var ivi = 0; ivi < intervals.length; ivi++) {
     var iv = intervals[ivi];
     try {
-      // FIX: Use DAILY_KLINE_LIMIT for daily candles
-      var limit = iv.key === 'D' ? DAILY_KLINE_LIMIT : KLINE_LIMIT;
+      // 5m candles: only need 2 for open price, skip indicators
+      var limit = iv.key === '5' ? 2 : iv.key === 'D' ? DAILY_KLINE_LIMIT : KLINE_LIMIT;
       var candles = await fetchKline(symbol, iv.key, limit);
+
+      // Store open price of current candle for change% calculation
+      if (iv.openKey && candles && candles.length >= 1) {
+        var openPrice = parseFloat(candles[0][1]); // candles[0] = most recent, [1] = open
+        if (!isNaN(openPrice) && openPrice > 0) {
+          inst[iv.openKey] = openPrice;
+          inst[iv.changeKey] = ((inst.price - openPrice) / openPrice) * 100;
+        }
+      }
+
+      // 5m candles don't need indicators — just the open price
+      if (iv.key === '5') continue;
+
       if (!candles || candles.length < RSI_PERIOD + 2) {
-        inst[iv.rsiKey] = null;
+        if (iv.rsiKey) inst[iv.rsiKey] = null;
         if (iv.divKey) inst[iv.divKey] = 'none';
-        inst[iv.chochKey] = 'none';
+        if (iv.chochKey) inst[iv.chochKey] = 'none';
         continue;
       }
       var closes = candles.map(function(c) { return parseFloat(c[4]); });
       var highs = candles.map(function(c) { return parseFloat(c[2]); });
       var lows = candles.map(function(c) { return parseFloat(c[3]); });
-      inst[iv.rsiKey] = computeRSI(closes);
+      if (iv.rsiKey) inst[iv.rsiKey] = computeRSI(closes);
       var candleObjs = candles.map(function(c, i) {
         return {
           high: highs[i], low: lows[i], close: closes[i],
@@ -2682,6 +2771,84 @@ document.addEventListener('click', function() {
 function updateFilterClearBtn() {
   document.getElementById('filterClear').classList.toggle('visible', activeFilters.size > 0 || volumeMinFilter > 0);
 }
+
+// ============================================================
+// Movers Panel — top gainers/losers by timeframe
+// ============================================================
+
+var activeMoversTab = '5m';
+var moversCollapsed = false;
+
+function getMoversData(tf) {
+  var arr = Object.values(instruments);
+  var changeKey;
+  if (tf === '5m') changeKey = 'change5m';
+  else if (tf === '15m') changeKey = 'change15m';
+  else if (tf === '4h') changeKey = 'change4h';
+  else changeKey = 'change24h'; // 1d
+
+  // Filter to instruments that have data for this timeframe
+  var withData = arr.filter(function(d) {
+    return d[changeKey] !== null && d[changeKey] !== undefined && !isNaN(d[changeKey]);
+  });
+
+  // Sort by change descending for gainers, ascending for losers
+  var sorted = withData.slice().sort(function(a, b) { return b[changeKey] - a[changeKey]; });
+  var gainers = sorted.slice(0, 5);
+  var losers = sorted.slice(-5).reverse();
+
+  return { gainers: gainers, losers: losers, key: changeKey };
+}
+
+function renderMovers() {
+  var data = getMoversData(activeMoversTab);
+  var gainersEl = document.getElementById('moversGainers');
+  var losersEl = document.getElementById('moversLosers');
+  gainersEl.innerHTML = '';
+  losersEl.innerHTML = '';
+
+  function buildRow(d, changeKey, container) {
+    var row = document.createElement('div');
+    row.className = 'movers-row';
+    var sym = document.createElement('span');
+    sym.className = 'movers-sym';
+    sym.textContent = d.symbol.replace(/USDT$/, '');
+    row.appendChild(sym);
+    var pct = document.createElement('span');
+    var val = d[changeKey];
+    pct.className = 'movers-pct ' + (val >= 0 ? 'up' : 'down');
+    pct.textContent = (val >= 0 ? '+' : '') + val.toFixed(2) + '%';
+    row.appendChild(pct);
+    row.addEventListener('click', function() { openChecklist(d.symbol); });
+    container.appendChild(row);
+  }
+
+  data.gainers.forEach(function(d) { buildRow(d, data.key, gainersEl); });
+  data.losers.forEach(function(d) { buildRow(d, data.key, losersEl); });
+
+  // Show panel once we have data
+  var panel = document.getElementById('moversPanel');
+  if (data.gainers.length > 0 || data.losers.length > 0) {
+    panel.classList.add('loaded');
+  }
+}
+
+// Tab clicks
+document.querySelectorAll('.movers-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.movers-tab').forEach(function(t) { t.classList.remove('active'); });
+    tab.classList.add('active');
+    activeMoversTab = tab.dataset.tf;
+    renderMovers();
+  });
+});
+
+// Toggle collapse
+document.getElementById('moversToggle').addEventListener('click', function() {
+  moversCollapsed = !moversCollapsed;
+  document.getElementById('moversBody').classList.toggle('collapsed', moversCollapsed);
+  this.textContent = moversCollapsed ? 'Show' : 'Hide';
+});
 
 // ============================================================
 // Pre-Trade Checklist — enforces institutional process
@@ -3073,6 +3240,12 @@ function processWsTicker(msg) {
   inst.rangePosition = rp.position;
   inst.rangeAbovePct = rp.abovePct;
   inst.rangeBelowPct = rp.belowPct;
+
+  // Live change% from stored opens
+  if (inst.open5m) inst.change5m = ((inst.price - inst.open5m) / inst.open5m) * 100;
+  if (inst.open15m) inst.change15m = ((inst.price - inst.open15m) / inst.open15m) * 100;
+  if (inst.open4h) inst.change4h = ((inst.price - inst.open4h) / inst.open4h) * 100;
+
   updateSignalFor(sym);
 
   // Throttled render
