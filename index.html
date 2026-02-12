@@ -1004,7 +1004,7 @@ async function fetchTickers() {
   return (result.list || []).filter(t => t.symbol.endsWith('USDT'));
 }
 
-// ── Market cap from CoinGecko (free API, no key needed) ──
+// ── Market cap from CoinCap.io (free, no API key, CORS enabled) ──
 var marketCapMap = {}; // { 'BTC': 1234567890, 'ETH': ... }
 var MCAP_CACHE_KEY = 'melloscan_mcap';
 var MCAP_CACHE_TS_KEY = 'melloscan_mcap_ts';
@@ -1015,33 +1015,50 @@ async function fetchMarketCaps() {
     var cached = localStorage.getItem(MCAP_CACHE_KEY);
     var ts = parseInt(localStorage.getItem(MCAP_CACHE_TS_KEY) || '0', 10);
     if (cached && Date.now() - ts < 15 * 60 * 1000) {
-      marketCapMap = JSON.parse(cached);
-      return;
+      var parsed = JSON.parse(cached);
+      if (Object.keys(parsed).length > 0) {
+        marketCapMap = parsed;
+        console.log('Market cap loaded from cache:', Object.keys(parsed).length, 'coins');
+        return;
+      }
     }
   } catch (e) { /* ignore */ }
 
-  var allCoins = [];
+  var allAssets = [];
   try {
-    for (var page = 1; page <= 3; page++) {
-      var resp = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=' + page);
-      if (!resp.ok) break;
-      var data = await resp.json();
-      if (!data || data.length === 0) break;
-      allCoins = allCoins.concat(data);
-      if (page < 3) await new Promise(function(r) { setTimeout(r, 500); }); // rate limit
+    // CoinCap v2: 2000 limit per page, paginate with offset
+    for (var offset = 0; offset < 750; offset += 250) {
+      var url = 'https://api.coincap.io/v2/assets?limit=250&offset=' + offset;
+      var resp = await fetch(url);
+      if (!resp.ok) {
+        console.warn('CoinCap API error:', resp.status, resp.statusText);
+        break;
+      }
+      var json = await resp.json();
+      if (!json.data || json.data.length === 0) break;
+      allAssets = allAssets.concat(json.data);
+      if (offset + 250 < 750) await new Promise(function(r) { setTimeout(r, 300); });
     }
   } catch (e) {
-    console.warn('CoinGecko market cap fetch failed:', e.message);
+    console.warn('CoinCap market cap fetch failed:', e.message);
+  }
+
+  if (allAssets.length === 0) {
+    console.warn('No market cap data retrieved');
     return;
   }
 
   var map = {};
-  allCoins.forEach(function(coin) {
-    if (coin.symbol && coin.market_cap) {
-      map[coin.symbol.toUpperCase()] = coin.market_cap;
+  allAssets.forEach(function(asset) {
+    if (asset.symbol && asset.marketCapUsd) {
+      var mcap = parseFloat(asset.marketCapUsd);
+      if (!isNaN(mcap) && mcap > 0) {
+        map[asset.symbol.toUpperCase()] = mcap;
+      }
     }
   });
   marketCapMap = map;
+  console.log('Market cap loaded:', Object.keys(map).length, 'coins');
 
   // Cache
   try {
@@ -2319,9 +2336,13 @@ async function loadTickers() {
     // P0: Compute 24h range position from real ticker data
     var rp = computePricePosition(price, high24h, low24h);
 
-    // Lookup market cap from CoinGecko data (strip USDT suffix)
+    // Lookup market cap (strip USDT suffix, handle 1000PEPE→PEPE variants)
     var baseCoin = sym.replace(/USDT$/, '');
-    var mcap = marketCapMap[baseCoin] || existing.marketCap || null;
+    var mcap = marketCapMap[baseCoin] || null;
+    if (!mcap && /^\d+/.test(baseCoin)) {
+      mcap = marketCapMap[baseCoin.replace(/^\d+/, '')] || null;
+    }
+    if (!mcap) mcap = existing.marketCap || null;
 
     instruments[sym] = {
       symbol: sym,
