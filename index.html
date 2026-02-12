@@ -318,8 +318,9 @@ tbody td {
 }
 tbody td:first-child {
   text-align: left; font-weight: 600; position: sticky; left: 0; z-index: 5;
-  background: var(--bg-primary); color: var(--text-primary);
+  background: var(--bg-primary); color: var(--blue); cursor: pointer;
 }
+tbody td:first-child:hover { text-decoration: underline; }
 tbody tr:nth-child(even) td:first-child { background: var(--bg-row-alt); }
 tbody tr:hover td:first-child { background: var(--bg-hover); }
 
@@ -413,6 +414,146 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
 .ls-long-heavy { color: var(--green); }
 .ls-short-heavy { color: var(--red); }
 .ls-neutral { color: var(--text-primary); }
+
+/* ── Confluence filter pills (gold accent) ── */
+.filter-pill.confluence {
+  background: rgba(234,179,8,0.06); border-color: rgba(234,179,8,0.25);
+  color: var(--yellow);
+}
+.filter-pill.confluence:hover {
+  background: rgba(234,179,8,0.12); border-color: var(--yellow);
+}
+.filter-pill.confluence.active {
+  background: rgba(234,179,8,0.18); border-color: var(--yellow); color: var(--yellow);
+}
+
+/* ── Edge Score column ── */
+.edge-cell { display: flex; align-items: center; gap: 5px; }
+.edge-bar {
+  width: 36px; height: 10px; background: var(--bg-primary);
+  border: 1px solid var(--border-color); border-radius: 2px;
+  overflow: hidden; flex-shrink: 0;
+}
+.edge-fill { height: 100%; border-radius: 1px; }
+.edge-val { font-weight: 700; min-width: 16px; }
+.edge-tags { display: flex; gap: 2px; }
+.edge-tag {
+  font-size: 7px; font-weight: 700; padding: 1px 3px; border-radius: 2px;
+  letter-spacing: 0.3px; line-height: 1.3; white-space: nowrap;
+}
+.edge-tag-sq { background: rgba(234,179,8,0.15); color: var(--yellow); }
+.edge-tag-oi { background: rgba(59,130,246,0.15); color: var(--blue); }
+.edge-tag-cvd { background: rgba(34,197,94,0.15); color: var(--green); }
+.edge-tag-div { background: rgba(168,85,247,0.15); color: #a855f7; }
+.edge-tag-rv { background: rgba(249,115,22,0.15); color: var(--orange); }
+.edge-tag-fv { background: rgba(236,72,153,0.15); color: #ec4899; }
+
+/* ── Pre-Trade Checklist Panel ── */
+.checklist-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  z-index: 5000; display: none; opacity: 0; transition: opacity 0.2s;
+}
+.checklist-backdrop.open { display: block; opacity: 1; }
+.checklist-panel {
+  position: fixed; top: 0; right: -440px; width: 420px; height: 100vh;
+  background: var(--bg-secondary); border-left: 1px solid var(--border-color);
+  z-index: 5001; transition: right 0.3s ease; overflow-y: auto;
+  box-shadow: -8px 0 32px rgba(0,0,0,0.4); font-family: var(--font-sans);
+}
+.checklist-panel.open { right: 0; }
+.checklist-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border-color);
+}
+.checklist-title {
+  font-size: 14px; font-weight: 700; color: var(--text-primary);
+  display: flex; align-items: center; gap: 6px;
+}
+.checklist-close {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  font-size: 18px; padding: 4px 8px; border-radius: 4px; transition: all 0.15s;
+}
+.checklist-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.checklist-summary { padding: 16px 20px; border-bottom: 1px solid var(--border-color); }
+.checklist-symbol {
+  font-size: 18px; font-weight: 800; color: var(--text-primary);
+  font-family: var(--font-mono); display: flex; align-items: center; gap: 10px;
+}
+.checklist-dir {
+  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 3px;
+}
+.checklist-dir.long { background: rgba(34,197,94,0.15); color: var(--green); }
+.checklist-dir.short { background: rgba(239,68,68,0.15); color: var(--red); }
+.checklist-meta {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;
+}
+.checklist-meta-item {
+  background: var(--bg-primary); border: 1px solid var(--border-color);
+  border-radius: 6px; padding: 8px 12px;
+}
+.checklist-meta-label {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-muted); font-weight: 600;
+}
+.checklist-meta-value {
+  font-size: 14px; font-weight: 700; margin-top: 2px; font-family: var(--font-mono);
+}
+.checklist-section-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text-muted); padding: 14px 20px 6px;
+}
+.checklist-items { padding: 0 20px; }
+.checklist-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer; transition: opacity 0.15s; user-select: none;
+}
+.checklist-item:last-child { border-bottom: none; }
+.checklist-check {
+  width: 18px; height: 18px; border: 2px solid var(--border-color);
+  border-radius: 4px; flex-shrink: 0; margin-top: 1px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; font-size: 11px; color: transparent;
+}
+.checklist-item.checked .checklist-check {
+  background: var(--blue); border-color: var(--blue); color: #fff;
+}
+.checklist-item-text { flex: 1; }
+.checklist-item-label { font-size: 12px; color: var(--text-primary); font-weight: 500; }
+.checklist-item.checked .checklist-item-label { text-decoration: line-through; opacity: 0.5; }
+.checklist-item-hint { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.checklist-item-auto {
+  font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+  margin-left: 6px;
+}
+.checklist-item-auto.pass { background: rgba(34,197,94,0.12); color: var(--green); }
+.checklist-item-auto.warn { background: rgba(234,179,8,0.12); color: var(--yellow); }
+.checklist-item-auto.fail { background: rgba(239,68,68,0.12); color: var(--red); }
+.checklist-footer {
+  padding: 16px 20px; border-top: 1px solid var(--border-color); margin-top: 4px;
+}
+.checklist-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.checklist-progress-bar {
+  flex: 1; height: 6px; background: var(--bg-primary); border-radius: 3px; overflow: hidden;
+}
+.checklist-progress-fill {
+  height: 100%; background: var(--blue); border-radius: 3px; transition: width 0.3s;
+}
+.checklist-progress-text {
+  font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;
+}
+.checklist-verdict {
+  padding: 10px; border-radius: 6px; text-align: center;
+  font-size: 12px; font-weight: 600;
+}
+.checklist-verdict.incomplete {
+  background: rgba(234,179,8,0.08); color: var(--yellow);
+  border: 1px solid rgba(234,179,8,0.2);
+}
+.checklist-verdict.complete {
+  background: rgba(34,197,94,0.08); color: var(--green);
+  border: 1px solid rgba(34,197,94,0.2);
+}
 
 /* ── Loading overlay ── */
 .loading-overlay {
@@ -526,6 +667,10 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
       <span class="filter-sep"></span>
       <button class="filter-pill" data-filter="grade-a">A Grade</button>
       <button class="filter-pill" data-filter="grade-b">B+ Grade</button>
+      <span class="filter-sep"></span>
+      <button class="filter-pill confluence" data-filter="hev-long">HEV Long</button>
+      <button class="filter-pill confluence" data-filter="hev-short">HEV Short</button>
+      <button class="filter-pill confluence" data-filter="full-confluence">Full Confluence</button>
       <button class="filter-clear" id="filterClear">Clear all</button>
       <span class="filter-result-count" id="filterResultCount"></span>
     </div>
@@ -565,6 +710,23 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
       <tbody id="tableBody"></tbody>
     </table>
   </div>
+</div>
+
+<!-- Pre-Trade Checklist Panel -->
+<div class="checklist-backdrop" id="checklistBackdrop"></div>
+<div class="checklist-panel" id="checklistPanel">
+  <div class="checklist-header">
+    <div class="checklist-title">Pre-Trade Checklist</div>
+    <button class="checklist-close" id="checklistClose">&times;</button>
+  </div>
+  <div class="checklist-summary" id="checklistSummary"></div>
+  <div class="checklist-section-title">Market Structure</div>
+  <div class="checklist-items" id="checklistStructure"></div>
+  <div class="checklist-section-title">Risk Management</div>
+  <div class="checklist-items" id="checklistRisk"></div>
+  <div class="checklist-section-title">Execution</div>
+  <div class="checklist-items" id="checklistExecution"></div>
+  <div class="checklist-footer" id="checklistFooter"></div>
 </div>
 
 <script>
@@ -609,6 +771,7 @@ const DEFAULT_COLUMNS = [
   { key: 'rsiLtf',        label: 'RSI 15/30m',  align: 'right', locked: false },
   { key: 'rsiHtf',        label: 'RSI HTF',     align: 'right', locked: false },
   { key: 'setupGrade',    label: 'Grade',       align: 'right', locked: false },
+  { key: 'edgeScore',     label: 'Edge',        align: 'left',  locked: false },
   { key: 'oiDelta',       label: 'OI Delta',    align: 'right', locked: false },
   { key: 'rangePosition', label: '24h Range',   align: 'right', locked: false },
   { key: 'cvd',           label: 'CVD',         align: 'right', locked: false },
@@ -624,7 +787,7 @@ DEFAULT_COLUMNS.forEach(c => { COLUMN_MAP[c.key] = c; });
 
 // P1: Default to 9 visible columns for new users
 const DEFAULT_VISIBLE_KEYS = new Set([
-  'symbol', 'price', 'change24h', 'volume24h', 'setupGrade',
+  'symbol', 'price', 'change24h', 'volume24h', 'setupGrade', 'edgeScore',
   'oiDelta', 'cvd', 'squeeze', 'fundingRate'
 ]);
 
@@ -1432,12 +1595,64 @@ function computeSetupGrade(d) {
   };
 }
 
+// ============================================================
+// Institutional Edge Score — confluence-based signal overlay
+// ============================================================
+// Measures how many independent institutional-grade conditions align.
+// Each condition is worth points; higher = more edge.
+// Tags show WHICH conditions are firing for quick visual scanning.
+// ============================================================
+
+function computeEdgeScore(d) {
+  var tags = [];
+  var score = 0;
+  var g = d._grade;
+  var isLong = g ? g.dir === 'LONG' : (d._signal || 0) >= 0;
+
+  // ── Squeeze (volatility catalyst) ──
+  if (d.squeezeOn) { score += 2; tags.push('SQ'); }
+  else if (d.squeezeBuilding) { score += 1; tags.push('SQ'); }
+
+  // ── OI Buildup (new money = conviction) ──
+  if (d.oiDeltaPct !== null && d.oiDeltaPct !== undefined) {
+    var oiAbs = Math.abs(d.oiDeltaPct);
+    var lbl = getOIDeltaLabel(d.oiDeltaPct, d.change24h, d.change24h);
+    var oiAligned = (isLong && lbl.dir > 0) || (!isLong && lbl.dir < 0);
+    if (oiAbs > 5 && oiAligned) { score += 2; tags.push('OI'); }
+    else if (oiAbs > 2 && oiAligned) { score += 1; tags.push('OI'); }
+    else if (oiAbs > 5) { score += 0.5; tags.push('OI'); }
+  }
+
+  // ── CVD (real order flow pressure) ──
+  var cvdDivMatch = (isLong && d.cvdDivergence === 'bull') || (!isLong && d.cvdDivergence === 'bear');
+  var cvdTrendMatch = (isLong && d.cvdTrend === 'bull') || (!isLong && d.cvdTrend === 'bear');
+  if (cvdDivMatch) { score += 2; tags.push('CVD'); }
+  else if (cvdTrendMatch) { score += 1; tags.push('CVD'); }
+
+  // ── Divergence (reversal timing) ──
+  var divMatch = (isLong && (d.div15m === 'bull' || d.div30m === 'bull')) ||
+                 (!isLong && (d.div15m === 'bear' || d.div30m === 'bear'));
+  if (divMatch) { score += 1.5; tags.push('DIV'); }
+
+  // ── Relative Volume (institutional participation) ──
+  if (d.relVolume !== null && d.relVolume >= 2) { score += 1.5; tags.push('RV'); }
+  else if (d.relVolume !== null && d.relVolume >= 1.5) { score += 0.5; tags.push('RV'); }
+
+  // ── Funding Velocity (crowd positioning — contrarian edge) ──
+  var fundConfirms = (isLong && d.fundVelDir === 'falling') || (!isLong && d.fundVelDir === 'rising');
+  if (fundConfirms) { score += 1.5; tags.push('FV'); }
+
+  score = Math.min(Math.round(score), 10);
+  return { score: score, tags: tags };
+}
+
 // P2: Update signal for a symbol (cached, only called on data change)
 function updateSignalFor(symbol) {
   var d = instruments[symbol];
   if (d) {
     d._signal = computeSignal(d);
     d._grade = computeSetupGrade(d);
+    d._edge = computeEdgeScore(d);
   }
 }
 
@@ -1577,6 +1792,48 @@ function buildFundVelCell(td, d) {
   val.className = 'tf-label'; val.style.marginLeft = '3px';
   val.textContent = (d.fundVelSlope >= 0 ? '+' : '') + (d.fundVelSlope * 10000).toFixed(2);
   td.appendChild(val);
+}
+
+function buildEdgeCell(td, d) {
+  var e = d._edge;
+  if (!e) { td.textContent = '\u2014'; return; }
+  td.style.cssText = 'white-space:nowrap;';
+  var wrap = document.createElement('span');
+  wrap.className = 'edge-cell';
+
+  // Score value
+  var val = document.createElement('span');
+  val.className = 'edge-val';
+  val.textContent = e.score;
+  var color = e.score >= 7 ? 'var(--green-bright)' : e.score >= 5 ? 'var(--green)' :
+              e.score >= 3 ? 'var(--yellow)' : 'var(--text-muted)';
+  val.style.color = color;
+  wrap.appendChild(val);
+
+  // Visual bar
+  var bar = document.createElement('span');
+  bar.className = 'edge-bar';
+  var fill = document.createElement('span');
+  fill.className = 'edge-fill';
+  fill.style.width = (e.score * 10) + '%';
+  fill.style.background = color;
+  bar.appendChild(fill);
+  wrap.appendChild(bar);
+
+  // Tags — show which conditions are firing
+  if (e.tags.length > 0) {
+    var tagsWrap = document.createElement('span');
+    tagsWrap.className = 'edge-tags';
+    var tagMap = { SQ: 'sq', OI: 'oi', CVD: 'cvd', DIV: 'div', RV: 'rv', FV: 'fv' };
+    for (var i = 0; i < e.tags.length; i++) {
+      var tag = document.createElement('span');
+      tag.className = 'edge-tag edge-tag-' + (tagMap[e.tags[i]] || 'sq');
+      tag.textContent = e.tags[i];
+      tagsWrap.appendChild(tag);
+    }
+    wrap.appendChild(tagsWrap);
+  }
+  td.appendChild(wrap);
 }
 
 function buildLSRatioCell(td, d) {
@@ -1740,6 +1997,50 @@ function getSortedFiltered() {
     arr = arr.filter(function(d) { return d._grade && d._grade.score >= 60; });
   }
 
+  // ── High-EV Confluence Filters ──
+  // These compound filters require MULTIPLE institutional conditions to fire simultaneously.
+  // They surface only setups where edge stacks — the way a real desk would filter.
+
+  if (activeFilters.has('hev-long')) {
+    arr = arr.filter(function(d) {
+      if (!d._grade || d._grade.dir !== 'LONG' || d._grade.score < 60) return false;
+      var hits = 0;
+      if (d.squeezeOn || d.squeezeBuilding) hits++;
+      if (d.oiDeltaPct !== null && d.oiDeltaPct > 3) hits++; // New longs entering
+      if (d.cvdTrend === 'bull' || d.cvdDivergence === 'bull') hits++;
+      if (d.relVolume !== null && d.relVolume >= 1.5) hits++;
+      if (d.fundVelDir === 'falling') hits++; // Shorts crowded = fuel
+      return hits >= 2;
+    });
+  }
+
+  if (activeFilters.has('hev-short')) {
+    arr = arr.filter(function(d) {
+      if (!d._grade || d._grade.dir !== 'SHORT' || d._grade.score < 60) return false;
+      var hits = 0;
+      if (d.squeezeOn || d.squeezeBuilding) hits++;
+      if (d.oiDeltaPct !== null && d.oiDeltaPct < -3) hits++; // New shorts entering
+      if (d.cvdTrend === 'bear' || d.cvdDivergence === 'bear') hits++;
+      if (d.relVolume !== null && d.relVolume >= 1.5) hits++;
+      if (d.fundVelDir === 'rising') hits++; // Longs crowded = fuel
+      return hits >= 2;
+    });
+  }
+
+  if (activeFilters.has('full-confluence')) {
+    arr = arr.filter(function(d) {
+      if (!d._grade || d._grade.score < 70) return false;
+      var isLong = d._grade.dir === 'LONG';
+      // Require ALL of: squeeze catalyst + OI conviction + CVD flow + volume participation
+      var hasSqueeze = d.squeezeOn || d.squeezeBuilding;
+      var hasOI = d.oiDeltaPct !== null && Math.abs(d.oiDeltaPct) > 3;
+      var hasCVD = (isLong && (d.cvdTrend === 'bull' || d.cvdDivergence === 'bull')) ||
+                   (!isLong && (d.cvdTrend === 'bear' || d.cvdDivergence === 'bear'));
+      var hasVol = d.relVolume !== null && d.relVolume >= 1.5;
+      return hasSqueeze && hasOI && hasCVD && hasVol;
+    });
+  }
+
   function compareByKey(a, b, key, dir) {
     if (key === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
     if (key === 'rsiLtf') {
@@ -1757,6 +2058,11 @@ function getSortedFiltered() {
       var ga = a._grade ? a._grade.score : -1;
       var gb = b._grade ? b._grade.score : -1;
       return dir * (ga - gb);
+    }
+    if (key === 'edgeScore') {
+      var ea = a._edge ? a._edge.score : -1;
+      var eb = b._edge ? b._edge.score : -1;
+      return dir * (ea - eb);
     }
     if (key === 'oiDelta') {
       var va = a.oiDeltaPct != null ? Math.abs(a.oiDeltaPct) : -1;
@@ -1867,6 +2173,7 @@ function renderTable() {
         case 'rsiLtf':        buildRsiLtfCell(td, d); break;
         case 'rsiHtf':         buildRsiHtfCell(td, d); break;
         case 'setupGrade':     buildGradeCell(td, d); break;
+        case 'edgeScore':      buildEdgeCell(td, d); break;
         case 'oiDelta':        buildOIDeltaCell(td, d); break;
         case 'rangePosition':  buildRangePositionCell(td, d); break;
         case 'cvd':            buildCvdCell(td, d); break;
@@ -2316,6 +2623,260 @@ document.getElementById('filterClear').addEventListener('click', function() {
 function updateFilterClearBtn() {
   document.getElementById('filterClear').classList.toggle('visible', activeFilters.size > 0 || volumeMinFilter > 0);
 }
+
+// ============================================================
+// Pre-Trade Checklist — enforces institutional process
+// ============================================================
+
+var checklistState = {};
+var checklistSymbol = null;
+
+var CHECKLIST_ITEMS = {
+  structure: [
+    { id: 'htf-trend', label: 'HTF trend confirmed', hint: 'Is the 4H/Daily CHOCH aligned with your direction?', auto: 'choch' },
+    { id: 'ltf-entry', label: 'LTF entry structure valid', hint: '15m/30m shows proper entry pattern (CHOCH, BOS, FVG)', auto: 'ltf' },
+    { id: 'oi-confirms', label: 'OI confirms new money', hint: 'OI delta shows new longs/shorts entering (not just covering)', auto: 'oi' },
+    { id: 'cvd-flow', label: 'Order flow supports bias', hint: 'CVD trend or divergence aligns with trade direction', auto: 'cvd' },
+  ],
+  risk: [
+    { id: 'stop-placed', label: 'Stop loss defined', hint: 'Below/above structure — not just an arbitrary %' },
+    { id: 'rr-valid', label: 'R:R minimum 2:1', hint: 'Risk-reward must justify the trade' },
+    { id: 'position-sized', label: 'Position size calculated', hint: 'Max 1-2% account risk per trade' },
+    { id: 'funding-checked', label: 'Funding rate impact assessed', hint: 'High funding eats edge on holds > 8h', auto: 'funding' },
+  ],
+  execution: [
+    { id: 'liquidity-ok', label: 'Sufficient volume/liquidity', hint: '24H vol adequate for your size; check spread', auto: 'volume' },
+    { id: 'not-fomo', label: 'Not chasing — entry is at level', hint: 'Wait for pullback/retest, not mid-candle panic entry' },
+    { id: 'no-news', label: 'No imminent high-impact news', hint: 'Check economic calendar for CPI, FOMC, etc.' },
+    { id: 'final-confirm', label: 'Final confirmation — ready to execute', hint: 'Everything checks out. Proceed with discipline.' },
+  ]
+};
+
+function openChecklist(symbol) {
+  var d = instruments[symbol];
+  if (!d) return;
+  checklistSymbol = symbol;
+
+  // Initialize or preserve state for this symbol
+  if (!checklistState[symbol]) {
+    checklistState[symbol] = {};
+  }
+
+  renderChecklistPanel(d);
+  document.getElementById('checklistBackdrop').classList.add('open');
+  document.getElementById('checklistPanel').classList.add('open');
+}
+
+function closeChecklist() {
+  document.getElementById('checklistBackdrop').classList.remove('open');
+  document.getElementById('checklistPanel').classList.remove('open');
+  checklistSymbol = null;
+}
+
+function getAutoStatus(d, itemId) {
+  var g = d._grade;
+  var isLong = g ? g.dir === 'LONG' : (d._signal || 0) >= 0;
+
+  if (itemId === 'htf-trend') {
+    var ch = getChochSummary(d);
+    var matches = (isLong && ch.dir === 'bull') || (!isLong && ch.dir === 'bear');
+    if (ch.aligned && matches) return { status: 'pass', text: 'ALIGNED' };
+    if (matches && ch.count >= 1) return { status: 'warn', text: 'PARTIAL' };
+    return { status: 'fail', text: 'MISALIGNED' };
+  }
+  if (itemId === 'ltf-entry') {
+    var ltf = isLong ? (d.choch15m === 'bull' || d.choch30m === 'bull')
+                     : (d.choch15m === 'bear' || d.choch30m === 'bear');
+    return ltf ? { status: 'pass', text: 'CONFIRMED' } : { status: 'warn', text: 'WAITING' };
+  }
+  if (itemId === 'oi-confirms') {
+    if (d.oiDeltaPct === null) return { status: 'warn', text: 'NO DATA' };
+    var lbl = getOIDeltaLabel(d.oiDeltaPct, d.change24h, d.change24h);
+    var oiMatch = (isLong && lbl.dir > 0) || (!isLong && lbl.dir < 0);
+    if (oiMatch && Math.abs(d.oiDeltaPct) > 3) return { status: 'pass', text: lbl.label };
+    if (oiMatch) return { status: 'warn', text: lbl.label };
+    return { status: 'fail', text: lbl.label };
+  }
+  if (itemId === 'cvd-flow') {
+    var cvdMatch = (isLong && (d.cvdTrend === 'bull' || d.cvdDivergence === 'bull')) ||
+                   (!isLong && (d.cvdTrend === 'bear' || d.cvdDivergence === 'bear'));
+    if (cvdMatch && d.cvdDivergence !== 'none') return { status: 'pass', text: 'STRONG' };
+    if (cvdMatch) return { status: 'pass', text: 'ALIGNED' };
+    return { status: 'fail', text: 'COUNTER' };
+  }
+  if (itemId === 'funding-checked') {
+    var fr = d.fundingRate;
+    if (fr === null || fr === undefined) return { status: 'warn', text: 'NO DATA' };
+    var frAbs = Math.abs(fr);
+    if (frAbs < 0.0003) return { status: 'pass', text: 'LOW' };
+    if (frAbs < 0.0008) return { status: 'warn', text: 'MODERATE' };
+    return { status: 'fail', text: 'HIGH' };
+  }
+  if (itemId === 'liquidity-ok') {
+    if (d.volume24h > 50000000) return { status: 'pass', text: formatVolume(d.volume24h) };
+    if (d.volume24h > 10000000) return { status: 'warn', text: formatVolume(d.volume24h) };
+    return { status: 'fail', text: formatVolume(d.volume24h) };
+  }
+  return null;
+}
+
+function renderChecklistPanel(d) {
+  var g = d._grade;
+  var isLong = g ? g.dir === 'LONG' : (d._signal || 0) >= 0;
+  var dir = isLong ? 'LONG' : 'SHORT';
+  var state = checklistState[d.symbol] || {};
+
+  // Summary
+  var summary = document.getElementById('checklistSummary');
+  summary.innerHTML = '';
+  var symRow = document.createElement('div');
+  symRow.className = 'checklist-symbol';
+  var symText = document.createElement('span');
+  symText.textContent = d.symbol;
+  symRow.appendChild(symText);
+  var dirBadge = document.createElement('span');
+  dirBadge.className = 'checklist-dir ' + dir.toLowerCase();
+  dirBadge.textContent = dir;
+  symRow.appendChild(dirBadge);
+  summary.appendChild(symRow);
+
+  var meta = document.createElement('div');
+  meta.className = 'checklist-meta';
+  var metaItems = [
+    { label: 'Price', value: formatPrice(d.price) },
+    { label: 'Grade', value: g ? g.grade + ' (' + g.score + ')' : '\u2014', color: g ? (g.grade === 'A' ? 'var(--green-bright)' : g.grade === 'B' ? 'var(--green)' : 'var(--yellow)') : '' },
+    { label: 'Edge Score', value: d._edge ? d._edge.score + '/10' : '\u2014' },
+    { label: '24H Change', value: formatPct(d.change24h), color: d.change24h >= 0 ? 'var(--green)' : 'var(--red)' },
+  ];
+  for (var i = 0; i < metaItems.length; i++) {
+    var mi = document.createElement('div');
+    mi.className = 'checklist-meta-item';
+    var lbl = document.createElement('div');
+    lbl.className = 'checklist-meta-label';
+    lbl.textContent = metaItems[i].label;
+    mi.appendChild(lbl);
+    var val = document.createElement('div');
+    val.className = 'checklist-meta-value';
+    val.textContent = metaItems[i].value;
+    if (metaItems[i].color) val.style.color = metaItems[i].color;
+    mi.appendChild(val);
+    meta.appendChild(mi);
+  }
+  summary.appendChild(meta);
+
+  // Render checklist sections
+  var sections = ['structure', 'risk', 'execution'];
+  var sectionIds = ['checklistStructure', 'checklistRisk', 'checklistExecution'];
+  var totalItems = 0;
+  var checkedItems = 0;
+
+  for (var si = 0; si < sections.length; si++) {
+    var container = document.getElementById(sectionIds[si]);
+    container.innerHTML = '';
+    var items = CHECKLIST_ITEMS[sections[si]];
+    for (var ii = 0; ii < items.length; ii++) {
+      var item = items[ii];
+      totalItems++;
+      var isChecked = !!state[item.id];
+      if (isChecked) checkedItems++;
+
+      var row = document.createElement('div');
+      row.className = 'checklist-item' + (isChecked ? ' checked' : '');
+      row.dataset.itemId = item.id;
+
+      var check = document.createElement('div');
+      check.className = 'checklist-check';
+      check.textContent = '\u2713';
+      row.appendChild(check);
+
+      var textWrap = document.createElement('div');
+      textWrap.className = 'checklist-item-text';
+      var label = document.createElement('div');
+      label.className = 'checklist-item-label';
+      label.textContent = item.label;
+
+      // Auto-status badge
+      if (item.auto) {
+        var autoResult = getAutoStatus(d, item.id);
+        if (autoResult) {
+          var badge = document.createElement('span');
+          badge.className = 'checklist-item-auto ' + autoResult.status;
+          badge.textContent = autoResult.text;
+          label.appendChild(badge);
+        }
+      }
+
+      textWrap.appendChild(label);
+      var hint = document.createElement('div');
+      hint.className = 'checklist-item-hint';
+      hint.textContent = item.hint;
+      textWrap.appendChild(hint);
+      row.appendChild(textWrap);
+
+      // Click to toggle
+      (function(itemId, rowEl) {
+        rowEl.addEventListener('click', function() {
+          var s = checklistState[checklistSymbol] || {};
+          s[itemId] = !s[itemId];
+          checklistState[checklistSymbol] = s;
+          renderChecklistPanel(instruments[checklistSymbol]);
+        });
+      })(item.id, row);
+
+      container.appendChild(row);
+    }
+  }
+
+  // Footer — progress bar + verdict
+  var footer = document.getElementById('checklistFooter');
+  footer.innerHTML = '';
+
+  var progress = document.createElement('div');
+  progress.className = 'checklist-progress';
+  var bar = document.createElement('div');
+  bar.className = 'checklist-progress-bar';
+  var fill = document.createElement('div');
+  fill.className = 'checklist-progress-fill';
+  fill.style.width = (totalItems > 0 ? Math.round(checkedItems / totalItems * 100) : 0) + '%';
+  bar.appendChild(fill);
+  progress.appendChild(bar);
+  var pText = document.createElement('div');
+  pText.className = 'checklist-progress-text';
+  pText.textContent = checkedItems + '/' + totalItems;
+  progress.appendChild(pText);
+  footer.appendChild(progress);
+
+  var verdict = document.createElement('div');
+  if (checkedItems === totalItems) {
+    verdict.className = 'checklist-verdict complete';
+    verdict.textContent = 'All checks passed — clear to execute with discipline';
+  } else {
+    verdict.className = 'checklist-verdict incomplete';
+    verdict.textContent = (totalItems - checkedItems) + ' item' + (totalItems - checkedItems === 1 ? '' : 's') + ' remaining before execution';
+  }
+  footer.appendChild(verdict);
+}
+
+// ── Checklist event listeners ──
+document.getElementById('checklistClose').addEventListener('click', closeChecklist);
+document.getElementById('checklistBackdrop').addEventListener('click', closeChecklist);
+
+// Row click opens checklist (on symbol cell)
+document.getElementById('tableBody').addEventListener('click', function(e) {
+  var td = e.target.closest('td');
+  var tr = e.target.closest('tr');
+  if (!tr || !tr.dataset.symbol) return;
+  // Only open on symbol column click (first cell) or double-click on row
+  if (td === tr.firstElementChild) {
+    openChecklist(tr.dataset.symbol);
+  }
+});
+document.getElementById('tableBody').addEventListener('dblclick', function(e) {
+  var tr = e.target.closest('tr');
+  if (tr && tr.dataset.symbol) {
+    openChecklist(tr.dataset.symbol);
+  }
+});
 
 // ============================================================
 // WebSocket real-time data feed
