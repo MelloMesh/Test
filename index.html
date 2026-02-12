@@ -760,8 +760,7 @@ const DEFAULT_COLUMNS = [
   { key: 'rsi15m',        label: 'RSI 15m',     align: 'right', locked: false },
   { key: 'rsi30m',        label: 'RSI 30m',     align: 'right', locked: false },
   { key: 'rsiHtf',        label: 'RSI HTF',     align: 'right', locked: false },
-  { key: 'setupGrade',    label: 'Grade',       align: 'right', locked: false },
-  { key: 'edgeScore',     label: 'Edge',        align: 'left',  locked: false },
+  { key: 'marketCap',     label: 'Mkt Cap',     align: 'right', locked: false },
   { key: 'oiDelta',       label: 'OI Delta',    align: 'right', locked: false },
   { key: 'rangePosition', label: '24h Range',   align: 'right', locked: false },
   { key: 'cvd',           label: 'CVD',         align: 'right', locked: false },
@@ -775,10 +774,10 @@ const DEFAULT_COLUMNS = [
 const COLUMN_MAP = {};
 DEFAULT_COLUMNS.forEach(c => { COLUMN_MAP[c.key] = c; });
 
-// Default visible: 7 columns — clean scan view. Rest available via column picker.
+// Default visible columns — clean scan view. Rest available via column picker.
 const DEFAULT_VISIBLE_KEYS = new Set([
-  'symbol', 'price', 'change24h', 'rsi15m', 'rsi30m',
-  'setupGrade', 'edgeScore', 'squeeze', 'fundingRate'
+  'symbol', 'price', 'change24h', 'marketCap', 'rsi15m', 'rsi30m',
+  'squeeze', 'fundingRate'
 ]);
 
 let columnOrder = DEFAULT_COLUMNS.map(c => c.key);
@@ -829,7 +828,7 @@ function saveColumnPrefs() {
 
 // ── State ──
 let instruments = {};
-let sortLevels = [{ key: 'setupGrade', dir: -1 }];
+let sortLevels = [{ key: 'marketCap', dir: -1 }];
 let activeFilters = new Set();
 let volumeMinFilter = 0;
 let searchText = '';
@@ -938,6 +937,52 @@ async function apiFetch(path, retries) {
 async function fetchTickers() {
   const result = await apiFetch('/v5/market/tickers?category=linear');
   return (result.list || []).filter(t => t.symbol.endsWith('USDT'));
+}
+
+// ── Market cap from CoinGecko (free API, no key needed) ──
+var marketCapMap = {}; // { 'BTC': 1234567890, 'ETH': ... }
+var MCAP_CACHE_KEY = 'melloscan_mcap';
+var MCAP_CACHE_TS_KEY = 'melloscan_mcap_ts';
+
+async function fetchMarketCaps() {
+  // Check cache first (refresh every 15 min)
+  try {
+    var cached = localStorage.getItem(MCAP_CACHE_KEY);
+    var ts = parseInt(localStorage.getItem(MCAP_CACHE_TS_KEY) || '0', 10);
+    if (cached && Date.now() - ts < 15 * 60 * 1000) {
+      marketCapMap = JSON.parse(cached);
+      return;
+    }
+  } catch (e) { /* ignore */ }
+
+  var allCoins = [];
+  try {
+    for (var page = 1; page <= 3; page++) {
+      var resp = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=' + page);
+      if (!resp.ok) break;
+      var data = await resp.json();
+      if (!data || data.length === 0) break;
+      allCoins = allCoins.concat(data);
+      if (page < 3) await new Promise(function(r) { setTimeout(r, 500); }); // rate limit
+    }
+  } catch (e) {
+    console.warn('CoinGecko market cap fetch failed:', e.message);
+    return;
+  }
+
+  var map = {};
+  allCoins.forEach(function(coin) {
+    if (coin.symbol && coin.market_cap) {
+      map[coin.symbol.toUpperCase()] = coin.market_cap;
+    }
+  });
+  marketCapMap = map;
+
+  // Cache
+  try {
+    localStorage.setItem(MCAP_CACHE_KEY, JSON.stringify(map));
+    localStorage.setItem(MCAP_CACHE_TS_KEY, String(Date.now()));
+  } catch (e) { /* ignore */ }
 }
 
 async function fetchKline(symbol, interval, limit) {
@@ -2005,15 +2050,10 @@ function getSortedFiltered() {
       var ra = getMostExtremeRSI_HTF(a), rb = getMostExtremeRSI_HTF(b);
       return dir * ((ra.val !== null ? Math.abs(ra.val - 50) : -1) - (rb.val !== null ? Math.abs(rb.val - 50) : -1));
     }
-    if (key === 'setupGrade') {
-      var ga = a._grade ? a._grade.score : -1;
-      var gb = b._grade ? b._grade.score : -1;
-      return dir * (ga - gb);
-    }
-    if (key === 'edgeScore') {
-      var ea = a._edge ? a._edge.score : -1;
-      var eb = b._edge ? b._edge.score : -1;
-      return dir * (ea - eb);
+    if (key === 'marketCap') {
+      var ma = a.marketCap || 0;
+      var mb = b.marketCap || 0;
+      return dir * (ma - mb);
     }
     if (key === 'oiDelta') {
       var va = a.oiDeltaPct != null ? Math.abs(a.oiDeltaPct) : -1;
@@ -2124,8 +2164,9 @@ function renderTable() {
         case 'rsi15m':        buildRsiCell(td, d.rsi15m, d.div15m); break;
         case 'rsi30m':        buildRsiCell(td, d.rsi30m, d.div30m); break;
         case 'rsiHtf':         buildRsiHtfCell(td, d); break;
-        case 'setupGrade':     buildGradeCell(td, d); break;
-        case 'edgeScore':      buildEdgeCell(td, d); break;
+        case 'marketCap':
+          td.textContent = d.marketCap ? formatVolume(d.marketCap) : '\u2014';
+          break;
         case 'oiDelta':        buildOIDeltaCell(td, d); break;
         case 'rangePosition':  buildRangePositionCell(td, d); break;
         case 'cvd':            buildCvdCell(td, d); break;
@@ -2210,9 +2251,14 @@ async function loadTickers() {
     // P0: Compute 24h range position from real ticker data
     var rp = computePricePosition(price, high24h, low24h);
 
+    // Lookup market cap from CoinGecko data (strip USDT suffix)
+    var baseCoin = sym.replace(/USDT$/, '');
+    var mcap = marketCapMap[baseCoin] || existing.marketCap || null;
+
     instruments[sym] = {
       symbol: sym,
       price: price,
+      marketCap: mcap,
       change24h: parseFloat(t.price24hPcnt) * 100 || 0,
       volume24h: parseFloat(t.turnover24h) || 0,
       fundingRate: parseFloat(t.fundingRate) || 0,
@@ -2406,6 +2452,7 @@ async function fullRefresh() {
   try {
     if (rsiAbortController) rsiAbortController.abort();
     rsiAbortController = new AbortController();
+    await fetchMarketCaps();
     await loadTickers();
     renderTable();
     updateLastRefresh();
