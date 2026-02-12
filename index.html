@@ -106,10 +106,6 @@ html, body {
 .filter-bar {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1;
 }
-.filter-sep {
-  width: 1px; height: 18px; background: var(--border-color);
-  margin: 0 2px; flex-shrink: 0;
-}
 .filter-pill {
   background: var(--bg-primary); border: 1px solid var(--border-color);
   border-radius: 4px; padding: 4px 10px; color: var(--text-secondary);
@@ -429,9 +425,6 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
   background: rgba(234,179,8,0.18); border-color: var(--yellow); color: var(--yellow);
 }
 
-/* ── Edge Score column ── */
-/* Score displayed as text; active tags shown in tooltip on hover */
-
 /* ── Pre-Trade Checklist Panel ── */
 .checklist-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -651,17 +644,6 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
           <button data-filter="cvd-div">CVD Divergence</button>
         </div>
       </div>
-      <span class="filter-sep"></span>
-      <button class="filter-pill" data-filter="grade-a">A Grade</button>
-      <button class="filter-pill" data-filter="grade-b">B+ Grade</button>
-      <div class="filter-dropdown" id="edgeFilterDropdown">
-        <button class="filter-dropdown-btn confluence" id="edgeFilterBtn">Edge <span class="dd-arrow">&#9662;</span></button>
-        <div class="filter-dropdown-menu" id="edgeFilterMenu">
-          <button data-filter="hev-long">HEV Long</button>
-          <button data-filter="hev-short">HEV Short</button>
-          <button data-filter="full-confluence">Full Confluence</button>
-        </div>
-      </div>
       <button class="filter-clear" id="filterClear">Clear all</button>
       <span class="filter-result-count" id="filterResultCount"></span>
     </div>
@@ -712,11 +694,11 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
     <button class="checklist-close" id="checklistClose">&times;</button>
   </div>
   <div class="checklist-summary" id="checklistSummary"></div>
-  <div class="checklist-section-title">Market Structure</div>
+  <div class="checklist-section-title">Trend &amp; Structure</div>
   <div class="checklist-items" id="checklistStructure"></div>
-  <div class="checklist-section-title">Risk Management</div>
+  <div class="checklist-section-title">Sentiment &amp; Positioning</div>
   <div class="checklist-items" id="checklistRisk"></div>
-  <div class="checklist-section-title">Execution</div>
+  <div class="checklist-section-title">Flow &amp; Volume</div>
   <div class="checklist-items" id="checklistExecution"></div>
   <div class="checklist-footer" id="checklistFooter"></div>
 </div>
@@ -1943,56 +1925,6 @@ function getSortedFiltered() {
     });
   }
 
-  if (activeFilters.has('grade-a')) {
-    arr = arr.filter(function(d) { return d._grade && d._grade.score >= 80; });
-  }
-  if (activeFilters.has('grade-b')) {
-    arr = arr.filter(function(d) { return d._grade && d._grade.score >= 60; });
-  }
-
-  // ── High-EV Confluence Filters ──
-  // These compound filters require MULTIPLE institutional conditions to fire simultaneously.
-  // They surface only setups where edge stacks — the way a real desk would filter.
-
-  if (activeFilters.has('hev-long')) {
-    arr = arr.filter(function(d) {
-      if (!d._grade || d._grade.dir !== 'LONG' || d._grade.score < 60) return false;
-      var hits = 0;
-      if (d.squeezeOn || d.squeezeBuilding) hits++;
-      if (d.oiDeltaPct !== null && d.oiDeltaPct > 3) hits++; // New longs entering
-      if (d.cvdTrend === 'bull' || d.cvdDivergence === 'bull') hits++;
-      if (d.relVolume !== null && d.relVolume >= 1.5) hits++;
-      if (d.fundVelDir === 'falling') hits++; // Shorts crowded = fuel
-      return hits >= 2;
-    });
-  }
-
-  if (activeFilters.has('hev-short')) {
-    arr = arr.filter(function(d) {
-      if (!d._grade || d._grade.dir !== 'SHORT' || d._grade.score < 60) return false;
-      var hits = 0;
-      if (d.squeezeOn || d.squeezeBuilding) hits++;
-      if (d.oiDeltaPct !== null && d.oiDeltaPct < -3) hits++; // New shorts entering
-      if (d.cvdTrend === 'bear' || d.cvdDivergence === 'bear') hits++;
-      if (d.relVolume !== null && d.relVolume >= 1.5) hits++;
-      if (d.fundVelDir === 'rising') hits++; // Longs crowded = fuel
-      return hits >= 2;
-    });
-  }
-
-  if (activeFilters.has('full-confluence')) {
-    arr = arr.filter(function(d) {
-      if (!d._grade || d._grade.score < 70) return false;
-      var isLong = d._grade.dir === 'LONG';
-      // Require ALL of: squeeze catalyst + OI conviction + CVD flow + volume participation
-      var hasSqueeze = d.squeezeOn || d.squeezeBuilding;
-      var hasOI = d.oiDeltaPct !== null && Math.abs(d.oiDeltaPct) > 3;
-      var hasCVD = (isLong && (d.cvdTrend === 'bull' || d.cvdDivergence === 'bull')) ||
-                   (!isLong && (d.cvdTrend === 'bear' || d.cvdDivergence === 'bear'));
-      var hasVol = d.relVolume !== null && d.relVolume >= 1.5;
-      return hasSqueeze && hasOI && hasCVD && hasVol;
-    });
-  }
 
   function compareByKey(a, b, key, dir) {
     if (key === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
@@ -2535,9 +2467,6 @@ document.getElementById('filterClear').addEventListener('click', function() {
   // Reset "More" dropdown items
   document.querySelectorAll('#moreFilterMenu button').forEach(function(b) { b.classList.remove('selected'); });
   document.getElementById('moreFilterBtn').classList.remove('active');
-  // Reset "Edge" dropdown items
-  document.querySelectorAll('#edgeFilterMenu button').forEach(function(b) { b.classList.remove('selected'); });
-  document.getElementById('edgeFilterBtn').classList.remove('active');
   updateFilterClearBtn(); renderTable();
 });
 
@@ -2602,28 +2531,6 @@ function setupFilterDropdown(btnId, menuId) {
   });
 })();
 
-// ── "Edge" toggle-filter dropdown ──
-(function() {
-  var dd = setupFilterDropdown('edgeFilterBtn', 'edgeFilterMenu');
-  dd.menu.querySelectorAll('button').forEach(function(item) {
-    item.addEventListener('click', function(e) {
-      e.stopPropagation();
-      var f = item.dataset.filter;
-      // Edge filters are mutually exclusive — only one at a time
-      dd.menu.querySelectorAll('button').forEach(function(b) {
-        if (b !== item) { b.classList.remove('selected'); activeFilters.delete(b.dataset.filter); }
-      });
-      if (activeFilters.has(f)) {
-        activeFilters.delete(f); item.classList.remove('selected');
-      } else {
-        activeFilters.add(f); item.classList.add('selected');
-      }
-      dd.btn.classList.toggle('active', activeFilters.has(f));
-      dd.menu.classList.remove('open');
-      updateFilterClearBtn(); renderTable();
-    });
-  });
-})();
 
 // Close all dropdown menus when clicking outside
 document.addEventListener('click', function() {
@@ -2641,27 +2548,26 @@ function updateFilterClearBtn() {
 // Pre-Trade Checklist — enforces institutional process
 // ============================================================
 
-var checklistState = {};
 var checklistSymbol = null;
 
 var CHECKLIST_ITEMS = {
   structure: [
-    { id: 'htf-trend', label: 'HTF trend confirmed', hint: 'Is the 4H/Daily CHOCH aligned with your direction?', auto: 'choch' },
-    { id: 'ltf-entry', label: 'LTF entry structure valid', hint: '15m/30m shows proper entry pattern (CHOCH, BOS, FVG)', auto: 'ltf' },
-    { id: 'oi-confirms', label: 'OI confirms new money', hint: 'OI delta shows new longs/shorts entering (not just covering)', auto: 'oi' },
-    { id: 'cvd-flow', label: 'Order flow supports bias', hint: 'CVD trend or divergence aligns with trade direction', auto: 'cvd' },
+    { id: 'htf-trend', label: 'HTF trend confirmed', hint: '4H/Daily CHOCH aligned with direction', auto: 'choch' },
+    { id: 'ltf-entry', label: 'LTF entry structure', hint: '15m/30m CHOCH confirms direction', auto: 'ltf' },
+    { id: 'rsi-aligned', label: 'RSI supports bias', hint: 'Multi-TF RSI alignment with direction', auto: 'rsi' },
+    { id: 'div-check', label: 'No adverse divergence', hint: 'RSI divergence not opposing trade direction', auto: 'divergence' },
   ],
   risk: [
-    { id: 'stop-placed', label: 'Stop loss defined', hint: 'Below/above structure — not just an arbitrary %' },
-    { id: 'rr-valid', label: 'R:R minimum 2:1', hint: 'Risk-reward must justify the trade' },
-    { id: 'position-sized', label: 'Position size calculated', hint: 'Max 1-2% account risk per trade' },
-    { id: 'funding-checked', label: 'Funding rate impact assessed', hint: 'High funding eats edge on holds > 8h', auto: 'funding' },
+    { id: 'funding-checked', label: 'Funding rate favorable', hint: 'Funding not crowded against direction', auto: 'funding' },
+    { id: 'ls-ratio', label: 'L/S ratio not extreme', hint: 'Crowd not over-positioned against trade', auto: 'lsratio' },
+    { id: 'range-pos', label: 'Range position favorable', hint: 'Not chasing into exhaustion extreme', auto: 'rangepos' },
+    { id: 'squeeze-state', label: 'Volatility context', hint: 'BB squeeze state and readiness', auto: 'squeeze' },
   ],
   execution: [
-    { id: 'liquidity-ok', label: 'Sufficient volume/liquidity', hint: '24H vol adequate for your size; check spread', auto: 'volume' },
-    { id: 'not-fomo', label: 'Not chasing — entry is at level', hint: 'Wait for pullback/retest, not mid-candle panic entry' },
-    { id: 'no-news', label: 'No imminent high-impact news', hint: 'Check economic calendar for CPI, FOMC, etc.' },
-    { id: 'final-confirm', label: 'Final confirmation — ready to execute', hint: 'Everything checks out. Proceed with discipline.' },
+    { id: 'oi-confirms', label: 'OI confirms new money', hint: 'OI delta shows fresh positioning, not just covering', auto: 'oi' },
+    { id: 'cvd-flow', label: 'Order flow supports bias', hint: 'CVD trend or divergence aligns with direction', auto: 'cvd' },
+    { id: 'liquidity-ok', label: 'Sufficient volume/liquidity', hint: '24H volume adequate for position size', auto: 'volume' },
+    { id: 'rvol-check', label: 'Participation confirmed', hint: 'Relative volume shows active interest', auto: 'rvol' },
   ]
 };
 
@@ -2669,11 +2575,6 @@ function openChecklist(symbol) {
   var d = instruments[symbol];
   if (!d) return;
   checklistSymbol = symbol;
-
-  // Initialize or preserve state for this symbol
-  if (!checklistState[symbol]) {
-    checklistState[symbol] = {};
-  }
 
   renderChecklistPanel(d);
   document.getElementById('checklistBackdrop').classList.add('open');
@@ -2702,6 +2603,25 @@ function getAutoStatus(d, itemId) {
                      : (d.choch15m === 'bear' || d.choch30m === 'bear');
     return ltf ? { status: 'pass', text: 'CONFIRMED' } : { status: 'warn', text: 'WAITING' };
   }
+  if (itemId === 'rsi-aligned') {
+    var rsiArr = [d.rsiDaily, d.rsi4h, d.rsi30m, d.rsi15m].filter(function(v) { return v !== null && v !== undefined; });
+    if (rsiArr.length === 0) return { status: 'warn', text: 'NO DATA' };
+    var bullCount = 0, bearCount = 0;
+    for (var i = 0; i < rsiArr.length; i++) { if (rsiArr[i] > 50) bullCount++; else bearCount++; }
+    var rsiMatch = isLong ? bullCount : bearCount;
+    if (rsiMatch === rsiArr.length) return { status: 'pass', text: rsiMatch + '/' + rsiArr.length + ' TFs' };
+    if (rsiMatch >= rsiArr.length * 0.5) return { status: 'warn', text: rsiMatch + '/' + rsiArr.length + ' TFs' };
+    return { status: 'fail', text: rsiMatch + '/' + rsiArr.length + ' TFs' };
+  }
+  if (itemId === 'div-check') {
+    var hasBullDiv = d.div15m === 'bull' || d.div30m === 'bull';
+    var hasBearDiv = d.div15m === 'bear' || d.div30m === 'bear';
+    if (isLong && hasBearDiv) return { status: 'fail', text: 'BEAR DIV' };
+    if (!isLong && hasBullDiv) return { status: 'fail', text: 'BULL DIV' };
+    if (isLong && hasBullDiv) return { status: 'pass', text: 'BULL DIV' };
+    if (!isLong && hasBearDiv) return { status: 'pass', text: 'BEAR DIV' };
+    return { status: 'pass', text: 'CLEAR' };
+  }
   if (itemId === 'oi-confirms') {
     if (d.oiDeltaPct === null) return { status: 'warn', text: 'NO DATA' };
     var lbl = getOIDeltaLabel(d.oiDeltaPct, d.change24h, d.change24h);
@@ -2720,15 +2640,69 @@ function getAutoStatus(d, itemId) {
   if (itemId === 'funding-checked') {
     var fr = d.fundingRate;
     if (fr === null || fr === undefined) return { status: 'warn', text: 'NO DATA' };
-    var frAbs = Math.abs(fr);
-    if (frAbs < 0.0003) return { status: 'pass', text: 'LOW' };
-    if (frAbs < 0.0008) return { status: 'warn', text: 'MODERATE' };
-    return { status: 'fail', text: 'HIGH' };
+    // Contrarian: high positive funding is bad for longs, bad negative is bad for shorts
+    var frPct = fr * 100;
+    if (isLong) {
+      if (frPct > 0.05) return { status: 'fail', text: 'CROWDED +' + frPct.toFixed(3) + '%' };
+      if (frPct > 0.01) return { status: 'warn', text: '+' + frPct.toFixed(3) + '%' };
+      if (frPct < -0.01) return { status: 'pass', text: 'FAVORABLE ' + frPct.toFixed(3) + '%' };
+      return { status: 'pass', text: 'NEUTRAL' };
+    } else {
+      if (frPct < -0.05) return { status: 'fail', text: 'CROWDED ' + frPct.toFixed(3) + '%' };
+      if (frPct < -0.01) return { status: 'warn', text: frPct.toFixed(3) + '%' };
+      if (frPct > 0.01) return { status: 'pass', text: 'FAVORABLE +' + frPct.toFixed(3) + '%' };
+      return { status: 'pass', text: 'NEUTRAL' };
+    }
+  }
+  if (itemId === 'ls-ratio') {
+    if (d.lsRatio === null || d.lsRatio === undefined) return { status: 'warn', text: 'NO DATA' };
+    var ls = d.lsRatio;
+    if (isLong) {
+      if (ls > 0.65) return { status: 'fail', text: 'CROWDED LONG ' + ls.toFixed(2) };
+      if (ls > 0.55) return { status: 'warn', text: 'ELEVATED ' + ls.toFixed(2) };
+      if (ls < 0.40) return { status: 'pass', text: 'FUEL ' + ls.toFixed(2) };
+      return { status: 'pass', text: 'OK ' + ls.toFixed(2) };
+    } else {
+      if (ls < 0.35) return { status: 'fail', text: 'CROWDED SHORT ' + ls.toFixed(2) };
+      if (ls < 0.45) return { status: 'warn', text: 'ELEVATED ' + ls.toFixed(2) };
+      if (ls > 0.60) return { status: 'pass', text: 'FUEL ' + ls.toFixed(2) };
+      return { status: 'pass', text: 'OK ' + ls.toFixed(2) };
+    }
+  }
+  if (itemId === 'range-pos') {
+    var rp = d.rangePosition;
+    if (rp === null || rp === undefined) return { status: 'warn', text: 'NO DATA' };
+    var rpPct = Math.round(rp * 100);
+    if (isLong) {
+      if (rp > 0.90) return { status: 'fail', text: 'AT HIGH ' + rpPct + '%' };
+      if (rp > 0.80) return { status: 'warn', text: 'NEAR HIGH ' + rpPct + '%' };
+      if (rp < 0.30) return { status: 'pass', text: 'BUY ZONE ' + rpPct + '%' };
+      return { status: 'pass', text: rpPct + '%' };
+    } else {
+      if (rp < 0.10) return { status: 'fail', text: 'AT LOW ' + rpPct + '%' };
+      if (rp < 0.20) return { status: 'warn', text: 'NEAR LOW ' + rpPct + '%' };
+      if (rp > 0.70) return { status: 'pass', text: 'SELL ZONE ' + rpPct + '%' };
+      return { status: 'pass', text: rpPct + '%' };
+    }
+  }
+  if (itemId === 'squeeze-state') {
+    if (d.squeezeOn) return { status: 'pass', text: 'SQUEEZE ON' };
+    if (d.squeezeBuilding) return { status: 'pass', text: 'BUILDING' };
+    if (d.squeezePctile !== null && d.squeezePctile < 0.20) return { status: 'warn', text: 'TIGHTENING' };
+    if (d.squeezePctile !== null && d.squeezePctile > 0.80) return { status: 'warn', text: 'EXPANDED' };
+    return { status: 'pass', text: 'NORMAL' };
   }
   if (itemId === 'liquidity-ok') {
     if (d.volume24h > 50000000) return { status: 'pass', text: formatVolume(d.volume24h) };
     if (d.volume24h > 10000000) return { status: 'warn', text: formatVolume(d.volume24h) };
     return { status: 'fail', text: formatVolume(d.volume24h) };
+  }
+  if (itemId === 'rvol-check') {
+    if (d.relVolume === null || d.relVolume === undefined) return { status: 'warn', text: 'NO DATA' };
+    if (d.relVolume >= 2.0) return { status: 'pass', text: d.relVolume.toFixed(1) + 'x IN PLAY' };
+    if (d.relVolume >= 1.2) return { status: 'pass', text: d.relVolume.toFixed(1) + 'x ACTIVE' };
+    if (d.relVolume >= 0.8) return { status: 'warn', text: d.relVolume.toFixed(1) + 'x NORMAL' };
+    return { status: 'fail', text: d.relVolume.toFixed(1) + 'x LOW' };
   }
   return null;
 }
@@ -2737,7 +2711,6 @@ function renderChecklistPanel(d) {
   var g = d._grade;
   var isLong = g ? g.dir === 'LONG' : (d._signal || 0) >= 0;
   var dir = isLong ? 'LONG' : 'SHORT';
-  var state = checklistState[d.symbol] || {};
 
   // Summary
   var summary = document.getElementById('checklistSummary');
@@ -2758,7 +2731,7 @@ function renderChecklistPanel(d) {
   var metaItems = [
     { label: 'Price', value: formatPrice(d.price) },
     { label: 'Grade', value: g ? g.grade + ' (' + g.score + ')' : '\u2014', color: g ? (g.grade === 'A' ? 'var(--green-bright)' : g.grade === 'B' ? 'var(--green)' : 'var(--yellow)') : '' },
-    { label: 'Edge Score', value: d._edge ? d._edge.score + '/10' : '\u2014' },
+    { label: 'Signal', value: d._signal != null ? (d._signal > 0 ? '+' : '') + d._signal : '\u2014', color: d._signal > 0 ? 'var(--green)' : d._signal < 0 ? 'var(--red)' : '' },
     { label: '24H Change', value: formatPct(d.change24h), color: d.change24h >= 0 ? 'var(--green)' : 'var(--red)' },
   ];
   for (var i = 0; i < metaItems.length; i++) {
@@ -2777,11 +2750,13 @@ function renderChecklistPanel(d) {
   }
   summary.appendChild(meta);
 
-  // Render checklist sections
+  // Render checklist sections — all items are auto-computed
   var sections = ['structure', 'risk', 'execution'];
   var sectionIds = ['checklistStructure', 'checklistRisk', 'checklistExecution'];
   var totalItems = 0;
-  var checkedItems = 0;
+  var passItems = 0;
+  var warnItems = 0;
+  var failItems = 0;
 
   for (var si = 0; si < sections.length; si++) {
     var container = document.getElementById(sectionIds[si]);
@@ -2790,16 +2765,27 @@ function renderChecklistPanel(d) {
     for (var ii = 0; ii < items.length; ii++) {
       var item = items[ii];
       totalItems++;
-      var isChecked = !!state[item.id];
-      if (isChecked) checkedItems++;
+      var autoResult = getAutoStatus(d, item.id);
+      if (autoResult) {
+        if (autoResult.status === 'pass') passItems++;
+        else if (autoResult.status === 'warn') warnItems++;
+        else failItems++;
+      }
 
       var row = document.createElement('div');
-      row.className = 'checklist-item' + (isChecked ? ' checked' : '');
+      row.className = 'checklist-item' + (autoResult && autoResult.status === 'pass' ? ' checked' : '');
       row.dataset.itemId = item.id;
 
       var check = document.createElement('div');
       check.className = 'checklist-check';
-      check.textContent = '\u2713';
+      check.textContent = autoResult ? (autoResult.status === 'pass' ? '\u2713' : autoResult.status === 'warn' ? '!' : '\u2717') : '\u2014';
+      if (autoResult) {
+        check.style.borderColor = autoResult.status === 'pass' ? 'var(--green)' : autoResult.status === 'warn' ? 'var(--yellow)' : 'var(--red)';
+        check.style.color = autoResult.status === 'pass' ? 'var(--green)' : autoResult.status === 'warn' ? 'var(--yellow)' : 'var(--red)';
+        if (autoResult.status === 'pass') check.style.background = 'rgba(34,197,94,0.15)';
+        else if (autoResult.status === 'fail') check.style.background = 'rgba(239,68,68,0.15)';
+        else check.style.background = 'rgba(234,179,8,0.15)';
+      }
       row.appendChild(check);
 
       var textWrap = document.createElement('div');
@@ -2808,15 +2794,11 @@ function renderChecklistPanel(d) {
       label.className = 'checklist-item-label';
       label.textContent = item.label;
 
-      // Auto-status badge
-      if (item.auto) {
-        var autoResult = getAutoStatus(d, item.id);
-        if (autoResult) {
-          var badge = document.createElement('span');
-          badge.className = 'checklist-item-auto ' + autoResult.status;
-          badge.textContent = autoResult.text;
-          label.appendChild(badge);
-        }
+      if (autoResult) {
+        var badge = document.createElement('span');
+        badge.className = 'checklist-item-auto ' + autoResult.status;
+        badge.textContent = autoResult.text;
+        label.appendChild(badge);
       }
 
       textWrap.appendChild(label);
@@ -2826,21 +2808,11 @@ function renderChecklistPanel(d) {
       textWrap.appendChild(hint);
       row.appendChild(textWrap);
 
-      // Click to toggle
-      (function(itemId, rowEl) {
-        rowEl.addEventListener('click', function() {
-          var s = checklistState[checklistSymbol] || {};
-          s[itemId] = !s[itemId];
-          checklistState[checklistSymbol] = s;
-          renderChecklistPanel(instruments[checklistSymbol]);
-        });
-      })(item.id, row);
-
       container.appendChild(row);
     }
   }
 
-  // Footer — progress bar + verdict
+  // Footer — auto-computed summary
   var footer = document.getElementById('checklistFooter');
   footer.innerHTML = '';
 
@@ -2850,22 +2822,31 @@ function renderChecklistPanel(d) {
   bar.className = 'checklist-progress-bar';
   var fill = document.createElement('div');
   fill.className = 'checklist-progress-fill';
-  fill.style.width = (totalItems > 0 ? Math.round(checkedItems / totalItems * 100) : 0) + '%';
+  var passPct = totalItems > 0 ? Math.round(passItems / totalItems * 100) : 0;
+  fill.style.width = passPct + '%';
+  if (failItems > 3) fill.style.background = 'var(--red)';
+  else if (failItems > 1) fill.style.background = 'var(--yellow)';
+  else fill.style.background = 'var(--green)';
   bar.appendChild(fill);
   progress.appendChild(bar);
   var pText = document.createElement('div');
   pText.className = 'checklist-progress-text';
-  pText.textContent = checkedItems + '/' + totalItems;
+  pText.textContent = passItems + '/' + totalItems + ' pass';
   progress.appendChild(pText);
   footer.appendChild(progress);
 
   var verdict = document.createElement('div');
-  if (checkedItems === totalItems) {
+  if (failItems === 0 && warnItems <= 2) {
     verdict.className = 'checklist-verdict complete';
-    verdict.textContent = 'All checks passed — clear to execute with discipline';
+    verdict.textContent = 'High confluence — ' + passItems + ' checks pass, ' + warnItems + ' caution';
+  } else if (failItems <= 2) {
+    verdict.className = 'checklist-verdict incomplete';
+    verdict.textContent = 'Mixed signals — ' + failItems + ' fail, ' + warnItems + ' caution';
   } else {
     verdict.className = 'checklist-verdict incomplete';
-    verdict.textContent = (totalItems - checkedItems) + ' item' + (totalItems - checkedItems === 1 ? '' : 's') + ' remaining before execution';
+    verdict.style.borderColor = 'var(--red)';
+    verdict.style.color = 'var(--red)';
+    verdict.textContent = 'Low confluence — ' + failItems + ' checks failing';
   }
   footer.appendChild(verdict);
 }
