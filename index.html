@@ -428,25 +428,7 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
 }
 
 /* ── Edge Score column ── */
-.edge-cell { display: flex; align-items: center; gap: 5px; }
-.edge-bar {
-  width: 36px; height: 10px; background: var(--bg-primary);
-  border: 1px solid var(--border-color); border-radius: 2px;
-  overflow: hidden; flex-shrink: 0;
-}
-.edge-fill { height: 100%; border-radius: 1px; }
-.edge-val { font-weight: 700; min-width: 16px; }
-.edge-tags { display: flex; gap: 2px; }
-.edge-tag {
-  font-size: 7px; font-weight: 700; padding: 1px 3px; border-radius: 2px;
-  letter-spacing: 0.3px; line-height: 1.3; white-space: nowrap;
-}
-.edge-tag-sq { background: rgba(234,179,8,0.15); color: var(--yellow); }
-.edge-tag-oi { background: rgba(59,130,246,0.15); color: var(--blue); }
-.edge-tag-cvd { background: rgba(34,197,94,0.15); color: var(--green); }
-.edge-tag-div { background: rgba(168,85,247,0.15); color: #a855f7; }
-.edge-tag-rv { background: rgba(249,115,22,0.15); color: var(--orange); }
-.edge-tag-fv { background: rgba(236,72,153,0.15); color: #ec4899; }
+/* Score displayed as text; active tags shown in tooltip on hover */
 
 /* ── Pre-Trade Checklist Panel ── */
 .checklist-backdrop {
@@ -642,14 +624,9 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
     </div>
     <div class="header-divider"></div>
     <div class="filter-bar">
-      <button class="filter-pill" data-filter="oversold">RSI &le; 30</button>
-      <button class="filter-pill" data-filter="overbought">RSI &ge; 70</button>
+      <button class="filter-pill" data-filter="ob-os">OB/OS</button>
       <button class="filter-pill" data-filter="divergence">Divergence</button>
-      <span class="filter-sep"></span>
       <button class="filter-pill" data-filter="squeeze">Squeeze</button>
-      <button class="filter-pill" data-filter="oi-buildup">OI Buildup</button>
-      <button class="filter-pill" data-filter="cvd-div">CVD Div</button>
-      <button class="filter-pill" data-filter="rvol">RVol &gt; 2x</button>
       <div class="filter-dropdown" id="volFilterDropdown">
         <button class="filter-dropdown-btn" id="volFilterBtn">Vol <span id="volFilterLabel">All</span> <span class="dd-arrow">&#9662;</span></button>
         <div class="filter-dropdown-menu" id="volFilterMenu">
@@ -663,14 +640,26 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
           <button data-vol="500000000">&gt; 500M</button>
         </div>
       </div>
-      <button class="filter-pill" data-filter="choch-aligned">CHOCH Aligned</button>
+      <div class="filter-dropdown" id="moreFilterDropdown">
+        <button class="filter-dropdown-btn" id="moreFilterBtn">More <span class="dd-arrow">&#9662;</span></button>
+        <div class="filter-dropdown-menu" id="moreFilterMenu">
+          <button data-filter="rvol">RVol &gt; 2x</button>
+          <button data-filter="choch-aligned">CHOCH Aligned</button>
+          <button data-filter="oi-buildup">OI Buildup</button>
+          <button data-filter="cvd-div">CVD Divergence</button>
+        </div>
+      </div>
       <span class="filter-sep"></span>
       <button class="filter-pill" data-filter="grade-a">A Grade</button>
       <button class="filter-pill" data-filter="grade-b">B+ Grade</button>
-      <span class="filter-sep"></span>
-      <button class="filter-pill confluence" data-filter="hev-long">HEV Long</button>
-      <button class="filter-pill confluence" data-filter="hev-short">HEV Short</button>
-      <button class="filter-pill confluence" data-filter="full-confluence">Full Confluence</button>
+      <div class="filter-dropdown" id="edgeFilterDropdown">
+        <button class="filter-dropdown-btn confluence" id="edgeFilterBtn">Edge <span class="dd-arrow">&#9662;</span></button>
+        <div class="filter-dropdown-menu" id="edgeFilterMenu">
+          <button data-filter="hev-long">HEV Long</button>
+          <button data-filter="hev-short">HEV Short</button>
+          <button data-filter="full-confluence">Full Confluence</button>
+        </div>
+      </div>
       <button class="filter-clear" id="filterClear">Clear all</button>
       <span class="filter-result-count" id="filterResultCount"></span>
     </div>
@@ -785,10 +774,10 @@ const DEFAULT_COLUMNS = [
 const COLUMN_MAP = {};
 DEFAULT_COLUMNS.forEach(c => { COLUMN_MAP[c.key] = c; });
 
-// P1: Default to 9 visible columns for new users
+// Default visible: 7 columns — clean scan view. Rest available via column picker.
 const DEFAULT_VISIBLE_KEYS = new Set([
-  'symbol', 'price', 'change24h', 'volume24h', 'setupGrade', 'edgeScore',
-  'oiDelta', 'cvd', 'squeeze', 'fundingRate'
+  'symbol', 'price', 'change24h', 'setupGrade', 'edgeScore',
+  'squeeze', 'fundingRate'
 ]);
 
 let columnOrder = DEFAULT_COLUMNS.map(c => c.key);
@@ -1797,43 +1786,15 @@ function buildFundVelCell(td, d) {
 function buildEdgeCell(td, d) {
   var e = d._edge;
   if (!e) { td.textContent = '\u2014'; return; }
-  td.style.cssText = 'white-space:nowrap;';
-  var wrap = document.createElement('span');
-  wrap.className = 'edge-cell';
-
-  // Score value
-  var val = document.createElement('span');
-  val.className = 'edge-val';
-  val.textContent = e.score;
   var color = e.score >= 7 ? 'var(--green-bright)' : e.score >= 5 ? 'var(--green)' :
               e.score >= 3 ? 'var(--yellow)' : 'var(--text-muted)';
-  val.style.color = color;
-  wrap.appendChild(val);
-
-  // Visual bar
-  var bar = document.createElement('span');
-  bar.className = 'edge-bar';
-  var fill = document.createElement('span');
-  fill.className = 'edge-fill';
-  fill.style.width = (e.score * 10) + '%';
-  fill.style.background = color;
-  bar.appendChild(fill);
-  wrap.appendChild(bar);
-
-  // Tags — show which conditions are firing
+  td.style.color = color;
+  td.style.fontWeight = e.score >= 5 ? '700' : '500';
+  td.textContent = e.score + '/10';
+  // Tags in tooltip for detail on hover
   if (e.tags.length > 0) {
-    var tagsWrap = document.createElement('span');
-    tagsWrap.className = 'edge-tags';
-    var tagMap = { SQ: 'sq', OI: 'oi', CVD: 'cvd', DIV: 'div', RV: 'rv', FV: 'fv' };
-    for (var i = 0; i < e.tags.length; i++) {
-      var tag = document.createElement('span');
-      tag.className = 'edge-tag edge-tag-' + (tagMap[e.tags[i]] || 'sq');
-      tag.textContent = e.tags[i];
-      tagsWrap.appendChild(tag);
-    }
-    wrap.appendChild(tagsWrap);
+    td.title = 'Active: ' + e.tags.join(', ');
   }
-  td.appendChild(wrap);
 }
 
 function buildLSRatioCell(td, d) {
@@ -1950,16 +1911,13 @@ function getSortedFiltered() {
     arr = arr.filter(function(d) { return d.volume24h >= volumeMinFilter; });
   }
 
-  if (activeFilters.has('oversold')) {
+  if (activeFilters.has('ob-os')) {
     arr = arr.filter(function(d) {
-      return (d.rsi15m !== null && d.rsi15m <= 30) || (d.rsi30m !== null && d.rsi30m <= 30) ||
-        (d.rsi4h !== null && d.rsi4h <= 30) || (d.rsiDaily !== null && d.rsiDaily <= 30);
-    });
-  }
-  if (activeFilters.has('overbought')) {
-    arr = arr.filter(function(d) {
-      return (d.rsi15m !== null && d.rsi15m >= 70) || (d.rsi30m !== null && d.rsi30m >= 70) ||
-        (d.rsi4h !== null && d.rsi4h >= 70) || (d.rsiDaily !== null && d.rsiDaily >= 70);
+      var rsis = [d.rsi15m, d.rsi30m, d.rsi4h, d.rsiDaily];
+      for (var i = 0; i < rsis.length; i++) {
+        if (rsis[i] !== null && (rsis[i] <= 30 || rsis[i] >= 70)) return true;
+      }
+      return false;
     });
   }
   if (activeFilters.has('divergence')) {
@@ -2562,7 +2520,7 @@ document.getElementById('searchInput').addEventListener('input', function(e) {
   renderTable();
 });
 
-document.querySelectorAll('.filter-pill').forEach(function(btn) {
+document.querySelectorAll('.filter-pill[data-filter]').forEach(function(btn) {
   btn.addEventListener('click', function() {
     var f = btn.dataset.filter;
     if (activeFilters.has(f)) { activeFilters.delete(f); btn.classList.remove('active'); }
@@ -2580,16 +2538,26 @@ document.getElementById('filterClear').addEventListener('click', function() {
   document.getElementById('volFilterBtn').classList.remove('active');
   document.querySelectorAll('#volFilterMenu button').forEach(function(b) { b.classList.remove('selected'); });
   document.querySelector('#volFilterMenu button[data-vol="0"]').classList.add('selected');
+  // Reset "More" dropdown items
+  document.querySelectorAll('#moreFilterMenu button').forEach(function(b) { b.classList.remove('selected'); });
+  document.getElementById('moreFilterBtn').classList.remove('active');
+  // Reset "Edge" dropdown items
+  document.querySelectorAll('#edgeFilterMenu button').forEach(function(b) { b.classList.remove('selected'); });
+  document.getElementById('edgeFilterBtn').classList.remove('active');
   updateFilterClearBtn(); renderTable();
 });
 
-// ── Volume dropdown filter ──
-(function() {
-  var btn = document.getElementById('volFilterBtn');
-  var menu = document.getElementById('volFilterMenu');
+// ── Generic dropdown filter helper ──
+function setupFilterDropdown(btnId, menuId) {
+  var btn = document.getElementById(btnId);
+  var menu = document.getElementById(menuId);
 
   btn.addEventListener('click', function(e) {
     e.stopPropagation();
+    // Close other dropdown menus
+    document.querySelectorAll('.filter-dropdown-menu.open').forEach(function(m) {
+      if (m !== menu) m.classList.remove('open');
+    });
     var isOpen = menu.classList.contains('open');
     if (!isOpen) {
       var rect = btn.getBoundingClientRect();
@@ -2599,26 +2567,76 @@ document.getElementById('filterClear').addEventListener('click', function() {
     menu.classList.toggle('open');
   });
 
-  menu.querySelectorAll('button').forEach(function(item) {
+  return { btn: btn, menu: menu };
+}
+
+// ── Volume dropdown filter ──
+(function() {
+  var dd = setupFilterDropdown('volFilterBtn', 'volFilterMenu');
+  dd.menu.querySelectorAll('button').forEach(function(item) {
     item.addEventListener('click', function(e) {
       e.stopPropagation();
       var val = parseInt(item.dataset.vol, 10);
       volumeMinFilter = val;
-      // Update label
       document.getElementById('volFilterLabel').textContent = val === 0 ? 'All' : item.textContent.trim();
-      // Update selected state
-      menu.querySelectorAll('button').forEach(function(b) { b.classList.remove('selected'); });
+      dd.menu.querySelectorAll('button').forEach(function(b) { b.classList.remove('selected'); });
       item.classList.add('selected');
-      // Update button active state
-      btn.classList.toggle('active', val > 0);
-      menu.classList.remove('open');
+      dd.btn.classList.toggle('active', val > 0);
+      dd.menu.classList.remove('open');
       updateFilterClearBtn(); renderTable();
     });
   });
-
-  // Close dropdown when clicking outside
-  document.addEventListener('click', function() { menu.classList.remove('open'); });
 })();
+
+// ── "More" toggle-filter dropdown ──
+(function() {
+  var dd = setupFilterDropdown('moreFilterBtn', 'moreFilterMenu');
+  dd.menu.querySelectorAll('button').forEach(function(item) {
+    item.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var f = item.dataset.filter;
+      if (activeFilters.has(f)) {
+        activeFilters.delete(f); item.classList.remove('selected');
+      } else {
+        activeFilters.add(f); item.classList.add('selected');
+      }
+      // Highlight dropdown button if any sub-filter is active
+      var anyActive = dd.menu.querySelector('button.selected') !== null;
+      dd.btn.classList.toggle('active', anyActive);
+      updateFilterClearBtn(); renderTable();
+    });
+  });
+})();
+
+// ── "Edge" toggle-filter dropdown ──
+(function() {
+  var dd = setupFilterDropdown('edgeFilterBtn', 'edgeFilterMenu');
+  dd.menu.querySelectorAll('button').forEach(function(item) {
+    item.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var f = item.dataset.filter;
+      // Edge filters are mutually exclusive — only one at a time
+      dd.menu.querySelectorAll('button').forEach(function(b) {
+        if (b !== item) { b.classList.remove('selected'); activeFilters.delete(b.dataset.filter); }
+      });
+      if (activeFilters.has(f)) {
+        activeFilters.delete(f); item.classList.remove('selected');
+      } else {
+        activeFilters.add(f); item.classList.add('selected');
+      }
+      dd.btn.classList.toggle('active', activeFilters.has(f));
+      dd.menu.classList.remove('open');
+      updateFilterClearBtn(); renderTable();
+    });
+  });
+})();
+
+// Close all dropdown menus when clicking outside
+document.addEventListener('click', function() {
+  document.querySelectorAll('.filter-dropdown-menu.open').forEach(function(m) {
+    m.classList.remove('open');
+  });
+});
 
 function updateFilterClearBtn() {
   document.getElementById('filterClear').classList.toggle('visible', activeFilters.size > 0 || volumeMinFilter > 0);
