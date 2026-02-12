@@ -1290,341 +1290,429 @@ function getChochSummary(d) {
 //          RSI+Div 15%, Range 5%, L/S 5%, CHOCH 5%
 // ============================================================
 
-function computeSignal(d) {
-  var score = 0;
+// ============================================================
+// CONFLUENCE ENGINE — Unified Scoring System
+// ============================================================
+// Replaces computeSignal + computeSetupGrade + computeEdgeScore
+// with a single coherent pipeline based on 4 independent pillars.
+//
+// Architecture:
+//   Step 1: Score each pillar independently (-1.0 to +1.0)
+//   Step 2: Weighted composite = Σ(pillar × weight)
+//   Step 3: Confluence gate = how many pillars agree
+//   Step 4: Conviction multipliers (TF alignment, squeeze, volume)
+//   Step 5: Output unified result
+//
+// Methodology sources:
+//   - Elder Triple Screen (HTF dominance)
+//   - Grinold's Fundamental Law (independent signal sources)
+//   - Minervini SEPA (minimum criteria gate)
+//   - Bayesian confluence (pillar agreement = higher posterior)
+// ============================================================
 
-  // ── 1. OI Delta vs Price (25%, max ±5 pts) ──
-  if (d.oiDeltaPct !== null && d.oiDeltaPct !== undefined) {
-    // P1: Relative threshold — normalize OI change by price volatility
-    var priceVol = Math.max(Math.abs(d.change24h || 0), 1);
-    var oiSignificance = Math.abs(d.oiDeltaPct) / priceVol;
-    var priceUp = d.change24h > 0;
-    var relThreshold = 0.5; // OI must move at least 50% as much as price
-    if (oiSignificance > relThreshold) {
-      var strength = Math.min(oiSignificance / 3, 5);
-      var oiUp = d.oiDeltaPct > 0;
-      if (oiUp && priceUp) score += strength;         // New longs → bullish
-      else if (oiUp && !priceUp) score -= strength;    // New shorts → bearish
-      else if (!oiUp && priceUp) score -= strength * 0.4;  // Short covering → weak
-      else if (!oiUp && !priceUp) score += strength * 0.6; // Liquidation → contrarian
-    }
-  }
+// Helper: clamp value to range
+function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
-  // ── 2. CVD Divergence (20%, max ±4 pts) ──
-  if (d.cvdDivergence === 'bull') score += 3;
-  else if (d.cvdDivergence === 'bear') score -= 3;
-  if (d.cvdTrend === 'bull') score += 1;
-  else if (d.cvdTrend === 'bear') score -= 1;
-
-  // ── 3. Funding Velocity (10%, max ±2 pts, contrarian) ──
-  if (d.fundVelDir === 'rising') {
-    score -= Math.min(Math.abs(d.fundVelSlope || 0) / 0.00015, 2);
-  } else if (d.fundVelDir === 'falling') {
-    score += Math.min(Math.abs(d.fundVelSlope || 0) / 0.00015, 2);
-  }
-
-  // ── 4. RSI + Divergence (15%, max ±3.5 pts) ──
-  var rsiEntries = [
-    { val: d.rsi15m, w: 0.3 }, { val: d.rsi30m, w: 0.3 },
-    { val: d.rsi4h, w: 0.7 }, { val: d.rsiDaily, w: 1.2 },
-  ];
-  for (var ri = 0; ri < rsiEntries.length; ri++) {
-    var r = rsiEntries[ri];
-    if (r.val === null || r.val === undefined) continue;
-    if (r.val <= 20) score += 0.5 * r.w;
-    else if (r.val <= 30) score += 0.3 * r.w;
-    else if (r.val >= 80) score -= 0.5 * r.w;
-    else if (r.val >= 70) score -= 0.3 * r.w;
-  }
-  if (d.div15m === 'bull' || d.div30m === 'bull') score += 1;
-  if (d.div15m === 'bear' || d.div30m === 'bear') score -= 1;
-
-  // ── 5. 24h Range Position (5%, max ±1 pt, mean-reversion) ──
-  if (d.rangePosition !== null && d.rangePosition !== undefined) {
-    // Near 24h high → slight short bias; near 24h low → slight long bias
-    score += (0.5 - d.rangePosition) * 2; // ±1 max
-  }
-
-  // ── 6. L/S Ratio (5%, max ±1.5 pts, contrarian) ──
-  if (d.lsRatio !== null && d.lsRatio !== undefined) {
-    // lsRatio = buyRatio (0..1). Crowd is usually wrong at extremes.
-    if (d.lsRatio > 0.6) score -= Math.min((d.lsRatio - 0.5) * 3, 1.5);
-    else if (d.lsRatio < 0.4) score += Math.min((0.5 - d.lsRatio) * 3, 1.5);
-  }
-
-  // ── 7. CHOCH (5%, max ±2 pts) ──
-  var ch = getChochSummary(d);
-  if (ch.aligned && ch.count >= 2) {
-    score += (ch.dir === 'bull' ? 2 : ch.dir === 'bear' ? -2 : 0);
-  } else {
-    var chochs = [d.choch15m, d.choch30m, d.choch4h, d.chochDaily];
-    for (var ci = 0; ci < chochs.length; ci++) {
-      if (chochs[ci] === 'bull') score += 0.3;
-      else if (chochs[ci] === 'bear') score -= 0.3;
-    }
-  }
-
-  // ── Funding rate extremes (contrarian) ──
-  var fr = d.fundingRate;
-  if (fr !== null && fr !== undefined && !isNaN(fr)) {
-    if (fr <= -0.0005) score += 1;
-    else if (fr >= 0.0005) score -= 1;
-  }
-
-  // ── P1 FIX: Volume amplifier THEN squeeze — applied LAST ──
-  if (d.relVolume !== null && d.relVolume > 2) {
-    score *= (d.relVolume > 3 ? 1.3 : 1.15);
-  }
-
-  // P1 FIX: Squeeze multiplier applied at the END (after all additive components)
-  if (d.squeezeOn) {
-    if (Math.abs(score) > 1) {
-      score *= 1.35;
-    }
-    if (d.oiDeltaPct !== null && d.oiDeltaPct > 2) {
-      score *= 1.15;
-    }
-  }
-
-  return Math.round(score * 10) / 10;
+// Helper: linear map from one range to another
+function mapRange(v, inLo, inHi, outLo, outHi) {
+  return outLo + (v - inLo) / (inHi - inLo) * (outHi - outLo);
 }
 
-// ============================================================
-// Setup Grade — 0-100 directional scoring (4 independent pillars)
-// ============================================================
-// Pillar weights: Trend 35, Squeeze/Momentum 30, Volume 20, RSI 15
-// Each pillar measures an independent dimension to avoid multicollinearity.
-// The grade is directional — it determines the BEST side (long or short)
-// and scores how strong that setup is.
-// ============================================================
+// ── PILLAR 1: TREND (30% weight) ──
+// Answers: "Which direction is market structure pointing?"
+function scoreTrendPillar(d) {
+  var score = 0;
+  var weights = 0;
 
-function computeSetupGrade(d) {
-  // --- Determine directional bias from existing signal ---
-  var sig = d._signal || computeSignal(d);
-  var isLong = sig >= 0;
-
-  var trendPts = 0;    // max 35
-  var sqzPts = 0;      // max 30
-  var volPts = 0;      // max 20
-  var rsiPts = 0;      // max 15
-
-  // ── PILLAR 1: Trend Alignment (35 pts) ──
-  // CHOCH multi-timeframe alignment is the primary trend signal
-  var ch = getChochSummary(d);
-  var chochDir = ch.dir; // 'bull', 'bear', 'mixed', 'none'
-  var chochAligned = ch.aligned && ch.count >= 2;
-  var trendMatchesBias = (isLong && chochDir === 'bull') || (!isLong && chochDir === 'bear');
-
-  if (chochAligned && trendMatchesBias) {
-    trendPts += 20; // Full alignment across timeframes in our direction
-  } else if (chochAligned) {
-    trendPts += 5;  // Aligned but counter to our direction — some structure
-  } else if (trendMatchesBias && ch.count >= 1) {
-    trendPts += 12; // Partial alignment
-  }
-
-  // CHOCH count bonus — more timeframes confirming = stronger
-  if (trendMatchesBias) {
-    var chochs = [d.choch15m, d.choch30m, d.choch4h, d.chochDaily];
-    var matchDir = isLong ? 'bull' : 'bear';
-    var matchCount = chochs.filter(function(c) { return c === matchDir; }).length;
-    trendPts += Math.min(matchCount * 3, 10); // up to 10 for 3+ TFs
-  }
-
-  // 24H price change confirms direction (up to 5 pts)
-  if (d.change24h !== null && d.change24h !== undefined) {
-    var priceConfirms = (isLong && d.change24h > 0) || (!isLong && d.change24h < 0);
-    if (priceConfirms) {
-      trendPts += Math.min(Math.abs(d.change24h) / 2, 5);
-    }
-  }
-
-  trendPts = Math.min(trendPts, 35);
-
-  // ── PILLAR 2: Squeeze / Momentum (30 pts) ──
-  // Squeeze state
-  if (d.squeezeOn) {
-    sqzPts += 15; // Active squeeze — volatility compressed, big move coming
-  } else if (d.squeezeBuilding) {
-    sqzPts += 7;  // Post-squeeze momentum building
-  } else if (d.squeezePctile !== null && d.squeezePctile !== undefined) {
-    // Near squeeze: lower percentile = closer to squeeze
-    if (d.squeezePctile <= 0.50) sqzPts += 3;
-  }
-
-  // CVD confirms momentum direction (up to 10 pts)
-  var cvdMatchesBias = (isLong && d.cvdTrend === 'bull') || (!isLong && d.cvdTrend === 'bear');
-  var cvdDivMatchesBias = (isLong && d.cvdDivergence === 'bull') || (!isLong && d.cvdDivergence === 'bear');
-  if (cvdDivMatchesBias) sqzPts += 7;  // CVD divergence in our direction — strong
-  else if (cvdMatchesBias) sqzPts += 4; // CVD trend alignment
-
-  // Funding velocity (contrarian, up to 5 pts)
-  // Rising funding = longs crowded = bearish; falling = shorts crowded = bullish
-  var fundConfirms = (isLong && d.fundVelDir === 'falling') || (!isLong && d.fundVelDir === 'rising');
-  if (fundConfirms && d.fundVelSlope !== null) {
-    sqzPts += Math.min(Math.abs(d.fundVelSlope) / 0.00008, 5);
-  }
-
-  sqzPts = Math.min(sqzPts, 30);
-
-  // ── PILLAR 3: Volume / Participation (20 pts) ──
-  // Relative volume — are real players involved?
-  if (d.relVolume !== null && d.relVolume !== undefined) {
-    if (d.relVolume >= 3.0) volPts += 10;       // Surge — 3x+ avg
-    else if (d.relVolume >= 2.0) volPts += 7;    // Strong — 2x+ avg
-    else if (d.relVolume >= 1.5) volPts += 5;    // Solid — above average
-    else if (d.relVolume >= 1.0) volPts += 2;    // Average
-  }
-
-  // OI Delta confirms new money entering in our direction (up to 10 pts)
-  if (d.oiDeltaPct !== null && d.oiDeltaPct !== undefined) {
-    var oiUp = d.oiDeltaPct > 0;
-    var priceUp = d.change24h > 0;
-    var absOI = Math.abs(d.oiDeltaPct);
-    // New longs with price up (long) or new shorts with price down (short)
-    var oiConfirmsBias = (isLong && oiUp && priceUp) || (!isLong && oiUp && !priceUp);
-    if (oiConfirmsBias) {
-      volPts += Math.min(absOI / 1.5, 10);
-    }
-    // Contrarian: short liquidation (OI down, price up) is weak for longs
-    // Give partial credit
-    var contrarian = (isLong && !oiUp && priceUp) || (!isLong && !oiUp && !priceUp);
-    if (contrarian) {
-      volPts += Math.min(absOI / 4, 3);
-    }
-  }
-
-  volPts = Math.min(volPts, 20);
-
-  // ── PILLAR 4: RSI / Timing (15 pts) ──
-  // RSI "sweet spot" — we want momentum but NOT exhaustion
-  // For longs: best is 50-65 (trending, room to run). Penalize >75.
-  // For shorts: best is 35-50. Penalize <25.
-  var rsiVals = [
-    { val: d.rsi4h, w: 2.5 },      // 4H most important
-    { val: d.rsiDaily, w: 2.5 },    // Daily equally important
-    { val: d.rsi15m, w: 1.0 },      // LTF fine-tuning
-    { val: d.rsi30m, w: 1.0 },
+  // 1a. CHOCH Multi-Timeframe (50% of pillar)
+  // Weighted: Daily 0.40, 4h 0.30, 30m 0.15, 15m 0.10 (sums < 1.0 intentionally)
+  var chochEntries = [
+    { val: d.chochDaily, w: 0.40 },
+    { val: d.choch4h,    w: 0.30 },
+    { val: d.choch30m,   w: 0.15 },
+    { val: d.choch15m,   w: 0.10 },
   ];
+  var chochScore = 0;
+  var chochW = 0;
+  for (var i = 0; i < chochEntries.length; i++) {
+    var c = chochEntries[i];
+    if (c.val === 'bull') { chochScore += c.w; chochW += c.w; }
+    else if (c.val === 'bear') { chochScore -= c.w; chochW += c.w; }
+    else if (c.val === 'none') { chochW += c.w * 0.3; } // Neutral — slight dilution
+  }
+  var chochNorm = chochW > 0 ? clamp(chochScore / chochW, -1, 1) : 0;
 
-  var rsiWeightSum = 0, rsiScoreSum = 0;
-  for (var ri = 0; ri < rsiVals.length; ri++) {
-    var rv = rsiVals[ri];
-    if (rv.val === null || rv.val === undefined) continue;
-    rsiWeightSum += rv.w;
-    var rsiScore = 0;
-    if (isLong) {
-      // Long sweet spot: 50-65 = full, 40-50 or 65-75 = partial, <30 or >80 = poor
-      if (rv.val >= 50 && rv.val <= 65) rsiScore = 1.0;
-      else if (rv.val >= 40 && rv.val < 50) rsiScore = 0.6;
-      else if (rv.val > 65 && rv.val <= 75) rsiScore = 0.5;
-      else if (rv.val <= 30) rsiScore = 0.3; // Oversold — potential reversal, partial credit
-      else if (rv.val > 75) rsiScore = 0.1;  // Overbought — risky entry
-      else rsiScore = 0.2; // 30-40 range — weak
+  // HTF dominance enforcement: if daily CHOCH is bearish, cap bullish at +0.3
+  if (d.chochDaily === 'bear' && chochNorm > 0.3) chochNorm = 0.3;
+  if (d.chochDaily === 'bull' && chochNorm < -0.3) chochNorm = -0.3;
+
+  score += chochNorm * 0.50;
+  weights += 0.50;
+
+  // 1b. RSI Trend Composite (30% of pillar)
+  // RSI > 50 = bullish momentum, < 50 = bearish
+  var rsiTrend = [
+    { val: d.rsiDaily, w: 0.40 },
+    { val: d.rsi4h,    w: 0.35 },
+    { val: d.rsi30m,   w: 0.15 },
+    { val: d.rsi15m,   w: 0.10 },
+  ];
+  var rsiTrendScore = 0;
+  var rsiTrendW = 0;
+  for (var ri = 0; ri < rsiTrend.length; ri++) {
+    var r = rsiTrend[ri];
+    if (r.val === null || r.val === undefined) continue;
+    rsiTrendW += r.w;
+    // Map RSI to -1..+1: 50 = 0, 70+ = +1, 30- = -1
+    var rNorm;
+    if (r.val >= 50) rNorm = clamp(mapRange(r.val, 50, 70, 0, 1), 0, 1);
+    else rNorm = clamp(mapRange(r.val, 30, 50, -1, 0), -1, 0);
+    rsiTrendScore += rNorm * r.w;
+  }
+  var rsiTrendNorm = rsiTrendW > 0 ? clamp(rsiTrendScore / rsiTrendW, -1, 1) : 0;
+  score += rsiTrendNorm * 0.30;
+  weights += 0.30;
+
+  // 1c. 24h Price Change (20% of pillar)
+  if (d.change24h !== null && d.change24h !== undefined) {
+    var priceScore = clamp(d.change24h / 10, -1, 1); // ±10% = full score
+    score += priceScore * 0.20;
+  }
+  weights += 0.20;
+
+  return weights > 0 ? clamp(score / weights, -1, 1) : 0;
+}
+
+// ── PILLAR 2: MOMENTUM (25% weight) ──
+// Answers: "Is the move accelerating, exhausted, or coiled?"
+function scoreMomentumPillar(d, directionHint) {
+  var score = 0;
+  var weights = 0;
+
+  // 2a. RSI Divergences (40% of pillar)
+  var divScore = 0;
+  var hasBullDiv = d.div15m === 'bull' || d.div30m === 'bull';
+  var hasBearDiv = d.div15m === 'bear' || d.div30m === 'bear';
+  var bothBull = d.div15m === 'bull' && d.div30m === 'bull';
+  var bothBear = d.div15m === 'bear' && d.div30m === 'bear';
+  if (hasBullDiv) divScore += bothBull ? 1.0 : 0.7;
+  if (hasBearDiv) divScore -= bothBear ? 1.0 : 0.7;
+  divScore = clamp(divScore, -1, 1);
+  score += divScore * 0.40;
+  weights += 0.40;
+
+  // 2b. BB Squeeze (35% of pillar) — non-directional catalyst
+  // Squeeze magnitude is always positive; direction comes from other pillars
+  var sqzMag = 0;
+  if (d.squeezeOn) sqzMag = 1.0;
+  else if (d.squeezeBuilding) sqzMag = 0.6;
+  else if (d.squeezePctile !== null && d.squeezePctile !== undefined) {
+    if (d.squeezePctile < 0.20) sqzMag = 0.4; // Tightening
+    else if (d.squeezePctile > 0.80) sqzMag = -0.3; // Over-expanded = exhaustion
+    else sqzMag = 0;
+  }
+  // Direction comes from the hint (other pillars' lean)
+  var sqzDir = directionHint >= 0 ? 1 : -1;
+  score += (sqzMag > 0 ? sqzMag * sqzDir : sqzMag * sqzDir) * 0.35;
+  weights += 0.35;
+
+  // 2c. Range Position (25% of pillar) — context-dependent
+  if (d.rangePosition !== null && d.rangePosition !== undefined) {
+    var rpScore = 0;
+    var rp = d.rangePosition;
+    // Use trend direction from hint for context
+    if (directionHint > 0.1) {
+      // In uptrend context: near lows = buy dip (+0.7), near highs = continuation (+0.3)
+      if (rp < 0.20) rpScore = 0.7;
+      else if (rp < 0.40) rpScore = 0.5;
+      else if (rp > 0.90) rpScore = -0.3; // Extended — caution
+      else rpScore = 0.3;
+    } else if (directionHint < -0.1) {
+      // In downtrend context: near highs = sell rip (-0.7), near lows = extended (-0.3)
+      if (rp > 0.80) rpScore = -0.7;
+      else if (rp > 0.60) rpScore = -0.5;
+      else if (rp < 0.10) rpScore = 0.3; // Oversold bounce
+      else rpScore = -0.3;
     } else {
-      // Short sweet spot: 35-50 = full, 25-35 or 50-60 = partial, <20 or >70 = poor
-      if (rv.val >= 35 && rv.val <= 50) rsiScore = 1.0;
-      else if (rv.val > 50 && rv.val <= 60) rsiScore = 0.6;
-      else if (rv.val >= 25 && rv.val < 35) rsiScore = 0.5;
-      else if (rv.val >= 70) rsiScore = 0.3; // Overbought — potential reversal
-      else if (rv.val < 25) rsiScore = 0.1;  // Oversold — risky short entry
-      else rsiScore = 0.2; // 60-70 range — weak
+      // Neutral/ranging: mean-reversion
+      rpScore = clamp((0.5 - rp) * 2, -0.5, 0.5);
     }
-    rsiScoreSum += rsiScore * rv.w;
+    score += rpScore * 0.25;
+  }
+  weights += 0.25;
+
+  return weights > 0 ? clamp(score / weights, -1, 1) : 0;
+}
+
+// ── PILLAR 3: FLOW (25% weight) ──
+// Answers: "Is real money backing this move?"
+function scoreFlowPillar(d) {
+  var score = 0;
+  var weights = 0;
+
+  // 3a. CVD Trend + Divergence (40% of pillar)
+  var cvdScore = 0;
+  if (d.cvdTrend === 'bull') cvdScore += 0.5;
+  else if (d.cvdTrend === 'bear') cvdScore -= 0.5;
+  if (d.cvdDivergence === 'bull') cvdScore += 0.5;
+  else if (d.cvdDivergence === 'bear') cvdScore -= 0.5;
+  cvdScore = clamp(cvdScore, -1, 1);
+  score += cvdScore * 0.40;
+  weights += 0.40;
+
+  // 3b. OI Delta (35% of pillar) — context matrix
+  if (d.oiDeltaPct !== null && d.oiDeltaPct !== undefined) {
+    var oiScore = 0;
+    var priceUp = (d.change24h || 0) > 0;
+    var oiUp = d.oiDeltaPct > 0;
+    var oiMag = clamp(Math.abs(d.oiDeltaPct) / 5, 0, 1); // 5% OI change = full magnitude
+
+    if (oiUp && priceUp) oiScore = 0.8 * oiMag;       // New longs entering
+    else if (oiUp && !priceUp) oiScore = -0.8 * oiMag; // New shorts entering
+    else if (!oiUp && priceUp) oiScore = 0.3 * oiMag;  // Short covering (weak rally)
+    else oiScore = 0.5 * oiMag;                          // Capitulation (contrarian bullish)
+
+    // Blend short-term and 4h delta (60/40 in favor of 4h)
+    if (d.oiDelta4h !== null && d.oiDelta4h !== undefined) {
+      var oi4hScore = 0;
+      var oi4hUp = d.oiDelta4h > 0;
+      var oi4hMag = clamp(Math.abs(d.oiDelta4h) / 8, 0, 1);
+      if (oi4hUp && priceUp) oi4hScore = 0.8 * oi4hMag;
+      else if (oi4hUp && !priceUp) oi4hScore = -0.8 * oi4hMag;
+      else if (!oi4hUp && priceUp) oi4hScore = 0.3 * oi4hMag;
+      else oi4hScore = 0.5 * oi4hMag;
+      oiScore = oiScore * 0.40 + oi4hScore * 0.60;
+    }
+    score += clamp(oiScore, -1, 1) * 0.35;
+  }
+  weights += 0.35;
+
+  // 3c. Relative Volume (25% of pillar) — participation confirmation
+  var rvolScore = 0;
+  if (d.relVolume !== null && d.relVolume !== undefined) {
+    if (d.relVolume >= 3.0) rvolScore = 1.0;
+    else if (d.relVolume >= 2.0) rvolScore = 0.8;
+    else if (d.relVolume >= 1.5) rvolScore = 0.5;
+    else if (d.relVolume >= 0.8) rvolScore = 0;
+    else rvolScore = -0.5; // Low participation — suspect
+    // Exhaustion warning: RVOL > 5x may indicate climactic move
+    if (d.relVolume >= 5.0) rvolScore = 0.3; // Reduce — could be exhaustion
+  }
+  // RVOL is non-directional; it acts as conviction, not direction
+  // We keep it as-is (positive = good) rather than multiplying by direction
+  score += rvolScore * 0.25;
+  weights += 0.25;
+
+  return weights > 0 ? clamp(score / weights, -1, 1) : 0;
+}
+
+// ── PILLAR 4: SENTIMENT (20% weight) ──
+// Answers: "How is the crowd positioned, and are they wrong?"
+function scoreSentimentPillar(d) {
+  var score = 0;
+  var weights = 0;
+
+  // 4a. Funding Rate (40% of pillar) — contrarian at extremes
+  var fr = d.fundingRate;
+  if (fr !== null && fr !== undefined && !isNaN(fr)) {
+    var frPct = fr * 100; // Convert to percentage
+    var frScore = 0;
+    if (frPct > 0.05) frScore = -1.0;         // Extreme bullish crowding → bearish
+    else if (frPct > 0.03) frScore = -0.5;     // Elevated bullish → mild bearish
+    else if (frPct > 0.01) frScore = 0.2;      // Moderate → slight trend confirm
+    else if (frPct > -0.01) frScore = 0;        // Neutral
+    else if (frPct > -0.03) frScore = -0.2;    // Moderate bearish → slight trend confirm
+    else if (frPct > -0.05) frScore = 0.5;     // Elevated bearish crowding → mild bullish
+    else frScore = 1.0;                         // Extreme bearish crowding → bullish
+    score += frScore * 0.40;
+  }
+  weights += 0.40;
+
+  // 4b. Funding Velocity (30% of pillar) — acceleration of positioning
+  if (d.fundVelDir && d.fundVelSlope !== null) {
+    var fvScore = 0;
+    if (d.fundVelDir === 'rising') {
+      // Funding accelerating positive → overheating → bearish lean
+      fvScore = -clamp(Math.abs(d.fundVelSlope) / 0.0002, 0, 1);
+    } else if (d.fundVelDir === 'falling') {
+      // Funding collapsing → unwind → bullish lean
+      fvScore = clamp(Math.abs(d.fundVelSlope) / 0.0002, 0, 1);
+    }
+    score += fvScore * 0.30;
+  }
+  weights += 0.30;
+
+  // 4c. Long/Short Ratio (30% of pillar) — contrarian at extremes
+  if (d.lsRatio !== null && d.lsRatio !== undefined) {
+    var lsScore = 0;
+    var ls = d.lsRatio; // buyRatio 0..1
+    if (ls > 0.65) lsScore = -1.0;          // Extreme long crowding
+    else if (ls > 0.55) lsScore = -0.5;     // Elevated long
+    else if (ls > 0.45) lsScore = 0;         // Neutral zone
+    else if (ls > 0.35) lsScore = 0.5;      // Elevated short
+    else lsScore = 1.0;                      // Extreme short crowding
+    score += lsScore * 0.30;
+  }
+  weights += 0.30;
+
+  return weights > 0 ? clamp(score / weights, -1, 1) : 0;
+}
+
+// ── MASTER CONFLUENCE FUNCTION ──
+function computeConfluence(d) {
+  // Step 1: Score each pillar independently
+  var trend = scoreTrendPillar(d);
+  var flow = scoreFlowPillar(d);
+  var sentiment = scoreSentimentPillar(d);
+  // Momentum needs a direction hint from the other pillars (for squeeze & range context)
+  var directionHint = trend * 0.50 + flow * 0.30 + sentiment * 0.20;
+  var momentum = scoreMomentumPillar(d, directionHint);
+
+  // Step 2: Weighted composite
+  var composite = (0.30 * trend) + (0.25 * momentum) + (0.25 * flow) + (0.20 * sentiment);
+  composite = clamp(composite, -1, 1);
+
+  // Step 3: Confluence gate — how many pillars agree with composite direction
+  var compSign = composite >= 0 ? 1 : -1;
+  var pillarSigns = [
+    trend >= 0.05 ? 1 : trend <= -0.05 ? -1 : 0,
+    momentum >= 0.05 ? 1 : momentum <= -0.05 ? -1 : 0,
+    flow >= 0.05 ? 1 : flow <= -0.05 ? -1 : 0,
+    sentiment >= 0.05 ? 1 : sentiment <= -0.05 ? -1 : 0,
+  ];
+  var pillarsAgreeing = 0;
+  var pillarsActive = 0;
+  for (var pi = 0; pi < pillarSigns.length; pi++) {
+    if (pillarSigns[pi] !== 0) pillarsActive++;
+    if (pillarSigns[pi] === compSign) pillarsAgreeing++;
   }
 
-  if (rsiWeightSum > 0) {
-    rsiPts += (rsiScoreSum / rsiWeightSum) * 10; // up to 10 pts from sweet spot
+  var gate;
+  if (pillarsAgreeing >= 4) gate = 1.00;
+  else if (pillarsAgreeing === 3) gate = 0.75;
+  else if (pillarsAgreeing === 2) gate = 0.40;
+  else gate = 0; // <2 pillars = no trade
+
+  var gated = composite * gate;
+
+  // Step 4: Conviction multipliers
+  // TF Alignment: daily + 4h CHOCH agreement
+  var tfMult = 1.0;
+  if (d.chochDaily !== 'none' && d.choch4h !== 'none') {
+    if (d.chochDaily === d.choch4h) tfMult = 1.15; // Aligned — boost
+    else if (d.chochDaily !== 'none' && d.choch4h !== 'none' && d.chochDaily !== d.choch4h) tfMult = 0.70; // Conflicting — dampen
   }
+  // Squeeze catalyst: only amplify if there's already a signal
+  var sqzMult = 1.0;
+  if (d.squeezeOn && Math.abs(gated) > 0.15) sqzMult = 1.20;
+  else if (d.squeezeBuilding && Math.abs(gated) > 0.15) sqzMult = 1.10;
+  // Volume confirmation
+  var volMult = 1.0;
+  if (d.relVolume !== null && d.relVolume >= 2.0) volMult = 1.10;
+  else if (d.relVolume !== null && d.relVolume < 0.8) volMult = 0.75;
 
-  // Divergence bonus (up to 5 pts) — divergence in our direction
-  var divMatchesBias = (isLong && (d.div15m === 'bull' || d.div30m === 'bull')) ||
-                       (!isLong && (d.div15m === 'bear' || d.div30m === 'bear'));
-  if (divMatchesBias) {
-    rsiPts += 5;
-    // Double divergence (both 15m and 30m)
-    var bothDiv = (isLong && d.div15m === 'bull' && d.div30m === 'bull') ||
-                  (!isLong && d.div15m === 'bear' && d.div30m === 'bear');
-    if (bothDiv) rsiPts += 2; // Can exceed 15 slightly, capped below
-  }
+  var final = clamp(gated * tfMult * sqzMult * volMult, -1, 1);
 
-  rsiPts = Math.min(rsiPts, 15);
+  // Step 5: Derive outputs
+  var absScore = Math.abs(final);
+  var direction, grade, cls;
+  if (final > 0.24) direction = 'LONG';
+  else if (final < -0.24) direction = 'SHORT';
+  else direction = 'NEUTRAL';
 
-  // ── Total & Grade ──
-  var total = Math.round(trendPts + sqzPts + volPts + rsiPts);
-  total = Math.max(0, Math.min(100, total));
-
-  var grade, cls;
-  if (total >= 80) { grade = 'A'; cls = 'grade-A'; }
-  else if (total >= 60) { grade = 'B'; cls = 'grade-B'; }
-  else if (total >= 40) { grade = 'C'; cls = 'grade-C'; }
-  else if (total >= 20) { grade = 'D'; cls = 'grade-D'; }
+  if (absScore >= 0.70) { grade = 'A'; cls = 'grade-A'; }
+  else if (absScore >= 0.45) { grade = 'B'; cls = 'grade-B'; }
+  else if (absScore >= 0.25) { grade = 'C'; cls = 'grade-C'; }
+  else if (absScore >= 0.10) { grade = 'D'; cls = 'grade-D'; }
   else { grade = 'F'; cls = 'grade-F'; }
 
+  // Edge tags — quick visual flags
+  var tags = [];
+  if (d.squeezeOn) tags.push('SQ');
+  else if (d.squeezeBuilding) tags.push('SQ');
+  var isLong = final >= 0;
+  if (d.oiDeltaPct !== null && Math.abs(d.oiDeltaPct) > 2) {
+    var oiDir = (d.change24h > 0 && d.oiDeltaPct > 0) || (d.change24h < 0 && d.oiDeltaPct > 0);
+    tags.push('OI');
+  }
+  if ((isLong && (d.cvdTrend === 'bull' || d.cvdDivergence === 'bull')) ||
+      (!isLong && (d.cvdTrend === 'bear' || d.cvdDivergence === 'bear'))) tags.push('CVD');
+  if ((isLong && (d.div15m === 'bull' || d.div30m === 'bull')) ||
+      (!isLong && (d.div15m === 'bear' || d.div30m === 'bear'))) tags.push('DIV');
+  if (d.relVolume !== null && d.relVolume >= 2.0) tags.push('RV');
+  if ((isLong && d.fundVelDir === 'falling') || (!isLong && d.fundVelDir === 'rising')) tags.push('FV');
+  var ch = getChochSummary(d);
+  if (ch.aligned && ch.count >= 3) tags.push('MTF');
+  if (d.oiDeltaPct !== null && d.oiDeltaPct < -3 && (d.change24h || 0) < -2) tags.push('CAP');
+
+  // Sizing recommendation (0-100%)
+  var sizing = 0;
+  if (absScore >= 0.70 && pillarsAgreeing >= 4) sizing = 90;
+  else if (absScore >= 0.70 && pillarsAgreeing >= 3) sizing = 75;
+  else if (absScore >= 0.45 && pillarsAgreeing >= 3) sizing = 60;
+  else if (absScore >= 0.45 && pillarsAgreeing >= 2) sizing = 40;
+  else if (absScore >= 0.25 && pillarsAgreeing >= 3) sizing = 40;
+  else if (absScore >= 0.25 && pillarsAgreeing >= 2) sizing = 25;
+  else sizing = 0;
+
+  // Score as 0-100 for grade display compatibility
+  var score100 = Math.round(absScore * 100);
+
   return {
+    direction: direction,
+    composite: Math.round(composite * 1000) / 1000,
+    final: Math.round(final * 1000) / 1000,
+    confidence: score100,
     grade: grade,
-    score: total,
     cls: cls,
-    dir: isLong ? 'LONG' : 'SHORT',
-    pillars: { trend: Math.round(trendPts), squeeze: Math.round(sqzPts), volume: Math.round(volPts), rsi: Math.round(rsiPts) }
+    gate: pillarsAgreeing,
+    pillars: {
+      trend:     Math.round(trend * 100) / 100,
+      momentum:  Math.round(momentum * 100) / 100,
+      flow:      Math.round(flow * 100) / 100,
+      sentiment: Math.round(sentiment * 100) / 100,
+    },
+    tags: tags,
+    sizing: sizing,
+    // Backward-compatible fields
+    score: score100,
+    dir: direction === 'NEUTRAL' ? (final >= 0 ? 'LONG' : 'SHORT') : direction,
   };
 }
 
-// ============================================================
-// Institutional Edge Score — confluence-based signal overlay
-// ============================================================
-// Measures how many independent institutional-grade conditions align.
-// Each condition is worth points; higher = more edge.
-// Tags show WHICH conditions are firing for quick visual scanning.
-// ============================================================
-
-function computeEdgeScore(d) {
-  var tags = [];
-  var score = 0;
-  var g = d._grade;
-  var isLong = g ? g.dir === 'LONG' : (d._signal || 0) >= 0;
-
-  // ── Squeeze (volatility catalyst) ──
-  if (d.squeezeOn) { score += 2; tags.push('SQ'); }
-  else if (d.squeezeBuilding) { score += 1; tags.push('SQ'); }
-
-  // ── OI Buildup (new money = conviction) ──
-  if (d.oiDeltaPct !== null && d.oiDeltaPct !== undefined) {
-    var oiAbs = Math.abs(d.oiDeltaPct);
-    var lbl = getOIDeltaLabel(d.oiDeltaPct, d.change24h, d.change24h);
-    var oiAligned = (isLong && lbl.dir > 0) || (!isLong && lbl.dir < 0);
-    if (oiAbs > 5 && oiAligned) { score += 2; tags.push('OI'); }
-    else if (oiAbs > 2 && oiAligned) { score += 1; tags.push('OI'); }
-    else if (oiAbs > 5) { score += 0.5; tags.push('OI'); }
-  }
-
-  // ── CVD (real order flow pressure) ──
-  var cvdDivMatch = (isLong && d.cvdDivergence === 'bull') || (!isLong && d.cvdDivergence === 'bear');
-  var cvdTrendMatch = (isLong && d.cvdTrend === 'bull') || (!isLong && d.cvdTrend === 'bear');
-  if (cvdDivMatch) { score += 2; tags.push('CVD'); }
-  else if (cvdTrendMatch) { score += 1; tags.push('CVD'); }
-
-  // ── Divergence (reversal timing) ──
-  var divMatch = (isLong && (d.div15m === 'bull' || d.div30m === 'bull')) ||
-                 (!isLong && (d.div15m === 'bear' || d.div30m === 'bear'));
-  if (divMatch) { score += 1.5; tags.push('DIV'); }
-
-  // ── Relative Volume (institutional participation) ──
-  if (d.relVolume !== null && d.relVolume >= 2) { score += 1.5; tags.push('RV'); }
-  else if (d.relVolume !== null && d.relVolume >= 1.5) { score += 0.5; tags.push('RV'); }
-
-  // ── Funding Velocity (crowd positioning — contrarian edge) ──
-  var fundConfirms = (isLong && d.fundVelDir === 'falling') || (!isLong && d.fundVelDir === 'rising');
-  if (fundConfirms) { score += 1.5; tags.push('FV'); }
-
-  score = Math.min(Math.round(score), 10);
-  return { score: score, tags: tags };
+// Backward-compatible wrappers (used by existing code)
+function computeSignal(d) {
+  var c = computeConfluence(d);
+  // Map -1..+1 final score to roughly -20..+20 range for old consumers
+  return Math.round(c.final * 20 * 10) / 10;
 }
 
-// P2: Update signal for a symbol (cached, only called on data change)
+function computeSetupGrade(d) {
+  var c = d._confluence || computeConfluence(d);
+  return {
+    grade: c.grade,
+    score: c.score,
+    cls: c.cls,
+    dir: c.dir,
+    pillars: {
+      trend:   Math.round(Math.abs(c.pillars.trend) * 30),
+      momentum: Math.round(Math.abs(c.pillars.momentum) * 25),
+      flow: Math.round(Math.abs(c.pillars.flow) * 25),
+      sentiment:  Math.round(Math.abs(c.pillars.sentiment) * 20),
+    }
+  };
+}
+
+function computeEdgeScore(d) {
+  var c = d._confluence || computeConfluence(d);
+  return { score: Math.min(Math.round(c.gate * 2 + c.tags.length), 10), tags: c.tags };
+}
+
+// Update signal for a symbol (cached, only called on data change)
 function updateSignalFor(symbol) {
   var d = instruments[symbol];
   if (d) {
+    d._confluence = computeConfluence(d);
     d._signal = computeSignal(d);
     d._grade = computeSetupGrade(d);
     d._edge = computeEdgeScore(d);
@@ -1681,7 +1769,7 @@ function buildGradeCell(td, d) {
   sc.textContent = g.score;
   td.appendChild(sc);
   // Tooltip with pillar breakdown
-  td.title = 'Trend: ' + g.pillars.trend + '/35  Squeeze: ' + g.pillars.squeeze + '/30  Volume: ' + g.pillars.volume + '/20  RSI: ' + g.pillars.rsi + '/15';
+  td.title = 'Trend: ' + g.pillars.trend + '/30  Momentum: ' + g.pillars.momentum + '/25  Flow: ' + g.pillars.flow + '/25  Sentiment: ' + g.pillars.sentiment + '/20';
 }
 
 function buildOIDeltaCell(td, d) {
@@ -1764,17 +1852,26 @@ function buildFundVelCell(td, d) {
 }
 
 function buildEdgeCell(td, d) {
-  var e = d._edge;
-  if (!e) { td.textContent = '\u2014'; return; }
-  var color = e.score >= 7 ? 'var(--green-bright)' : e.score >= 5 ? 'var(--green)' :
-              e.score >= 3 ? 'var(--yellow)' : 'var(--text-muted)';
-  td.style.color = color;
-  td.style.fontWeight = e.score >= 5 ? '700' : '500';
-  td.textContent = e.score + '/10';
-  // Tags in tooltip for detail on hover
-  if (e.tags.length > 0) {
-    td.title = 'Active: ' + e.tags.join(', ');
+  var c = d._confluence;
+  if (!c) { td.textContent = '\u2014'; return; }
+  // Show gate count (pillar agreement) as primary display
+  var gateColor = c.gate >= 4 ? 'var(--green-bright)' : c.gate >= 3 ? 'var(--green)' :
+                  c.gate >= 2 ? 'var(--yellow)' : 'var(--text-muted)';
+  var gateSpan = document.createElement('span');
+  gateSpan.style.color = gateColor;
+  gateSpan.style.fontWeight = c.gate >= 3 ? '700' : '500';
+  gateSpan.textContent = c.gate + '/4';
+  td.appendChild(gateSpan);
+  // Show tags inline if any
+  if (c.tags.length > 0) {
+    var tagSpan = document.createElement('span');
+    tagSpan.style.cssText = 'font-size:9px;margin-left:4px;color:var(--text-muted);';
+    tagSpan.textContent = c.tags.join(' ');
+    td.appendChild(tagSpan);
   }
+  td.title = 'Confluence: ' + c.gate + '/4 pillars | T:' + c.pillars.trend +
+    ' M:' + c.pillars.momentum + ' F:' + c.pillars.flow + ' S:' + c.pillars.sentiment +
+    (c.tags.length > 0 ? ' | Tags: ' + c.tags.join(', ') : '');
 }
 
 function buildLSRatioCell(td, d) {
@@ -2728,10 +2825,11 @@ function renderChecklistPanel(d) {
 
   var meta = document.createElement('div');
   meta.className = 'checklist-meta';
+  var c = d._confluence;
   var metaItems = [
     { label: 'Price', value: formatPrice(d.price) },
     { label: 'Grade', value: g ? g.grade + ' (' + g.score + ')' : '\u2014', color: g ? (g.grade === 'A' ? 'var(--green-bright)' : g.grade === 'B' ? 'var(--green)' : 'var(--yellow)') : '' },
-    { label: 'Signal', value: d._signal != null ? (d._signal > 0 ? '+' : '') + d._signal : '\u2014', color: d._signal > 0 ? 'var(--green)' : d._signal < 0 ? 'var(--red)' : '' },
+    { label: 'Confluence', value: c ? c.gate + '/4 pillars' : '\u2014', color: c ? (c.gate >= 4 ? 'var(--green-bright)' : c.gate >= 3 ? 'var(--green)' : c.gate >= 2 ? 'var(--yellow)' : 'var(--text-muted)') : '' },
     { label: '24H Change', value: formatPct(d.change24h), color: d.change24h >= 0 ? 'var(--green)' : 'var(--red)' },
   ];
   for (var i = 0; i < metaItems.length; i++) {
