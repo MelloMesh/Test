@@ -2409,6 +2409,8 @@ async function loadTickers() {
   setRefreshStripeIndeterminate(false);
 }
 
+var _moversDebugLogged = false; // Log first successful change calculation once
+
 async function loadKlineDataForSymbol(symbol) {
   var intervals = [
     { key: '5', rsiKey: null, divKey: null, chochKey: null, openKey: 'open5m', changeKey: 'change5m' },
@@ -2417,8 +2419,7 @@ async function loadKlineDataForSymbol(symbol) {
     { key: '240', rsiKey: 'rsi4h', divKey: null, chochKey: 'choch4h', openKey: 'open4h', changeKey: 'change4h' },
     { key: 'D', rsiKey: 'rsiDaily', divKey: null, chochKey: 'chochDaily', openKey: null, changeKey: null },
   ];
-  var inst = instruments[symbol];
-  if (!inst) return;
+  if (!instruments[symbol]) return;
 
   for (var ivi = 0; ivi < intervals.length; ivi++) {
     var iv = intervals[ivi];
@@ -2426,6 +2427,11 @@ async function loadKlineDataForSymbol(symbol) {
       // 5m candles: only need 2 for open price, skip indicators
       var limit = iv.key === '5' ? 2 : iv.key === 'D' ? DAILY_KLINE_LIMIT : KLINE_LIMIT;
       var candles = await fetchKline(symbol, iv.key, limit);
+
+      // Re-fetch inst after each await to avoid stale references
+      // (processTickers replaces instruments[sym] with a new object)
+      var inst = instruments[symbol];
+      if (!inst) return;
 
       // Store open price of current candle for change% calculation
       if (iv.openKey && candles && candles.length >= 1) {
@@ -2435,6 +2441,11 @@ async function loadKlineDataForSymbol(symbol) {
         if (!isNaN(openPrice) && openPrice > 0 && inst.price > 0) {
           inst[iv.openKey] = openPrice;
           inst[iv.changeKey] = ((inst.price - openPrice) / openPrice) * 100;
+          if (!_moversDebugLogged) {
+            _moversDebugLogged = true;
+            console.log('[MelloScan] Movers change set:', symbol, iv.changeKey, '=', inst[iv.changeKey].toFixed(2) + '%',
+              'open:', openPrice, 'price:', inst.price, 'candles:', candles.length);
+          }
         }
       }
 
@@ -2498,8 +2509,7 @@ async function loadKlineDataForSymbol(symbol) {
 }
 
 async function loadAdditionalDataForSymbol(symbol) {
-  var inst = instruments[symbol];
-  if (!inst) return;
+  if (!instruments[symbol]) return;
 
   // FIX: Removed redundant .catch() — Promise.allSettled already handles rejections
   var results = await Promise.allSettled([
@@ -2507,6 +2517,10 @@ async function loadAdditionalDataForSymbol(symbol) {
     fetchFundingHistory(symbol),
     fetchAccountRatio(symbol),
   ]);
+
+  // Re-fetch inst after await to avoid stale references
+  var inst = instruments[symbol];
+  if (!inst) return;
 
   // OI Delta
   var oiHistory = results[0].status === 'fulfilled' ? results[0].value : null;
