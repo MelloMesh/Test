@@ -737,10 +737,10 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
   </div>
   <div class="movers-panel" id="moversPanel">
     <div class="movers-tabs">
-      <button class="movers-tab active" data-tf="5m">5m</button>
+      <button class="movers-tab" data-tf="5m">5m</button>
       <button class="movers-tab" data-tf="15m">15m</button>
       <button class="movers-tab" data-tf="4h">4H</button>
-      <button class="movers-tab" data-tf="1d">1D</button>
+      <button class="movers-tab active" data-tf="1d">1D</button>
       <button class="movers-toggle" id="moversToggle">Hide</button>
     </div>
     <div class="movers-body" id="moversBody">
@@ -2376,12 +2376,12 @@ async function loadTickers() {
       fundVelDir: existing.fundVelDir || 'flat',
       lsRatio: existing.lsRatio || null,
       // Timeframe opens (for live change% calculation)
-      open5m: existing.open5m || null,
-      open15m: existing.open15m || null,
-      open4h: existing.open4h || null,
-      change5m: existing.change5m || null,
-      change15m: existing.change15m || null,
-      change4h: existing.change4h || null,
+      open5m: existing.open5m != null ? existing.open5m : null,
+      open15m: existing.open15m != null ? existing.open15m : null,
+      open4h: existing.open4h != null ? existing.open4h : null,
+      change5m: existing.change5m != null ? existing.change5m : null,
+      change15m: existing.change15m != null ? existing.change15m : null,
+      change4h: existing.change4h != null ? existing.change4h : null,
       _signal: existing._signal || 0,
     };
     updateSignalFor(sym);
@@ -2415,7 +2415,7 @@ async function loadKlineDataForSymbol(symbol) {
 
       // Store open price of current candle for change% calculation
       if (iv.openKey && candles && candles.length >= 1) {
-        var openPrice = parseFloat(candles[0][1]); // candles[0] = most recent, [1] = open
+        var openPrice = parseFloat(candles[candles.length - 1][1]); // last after reverse = most recent, [1] = open
         if (!isNaN(openPrice) && openPrice > 0) {
           inst[iv.openKey] = openPrice;
           inst[iv.changeKey] = ((inst.price - openPrice) / openPrice) * 100;
@@ -2794,7 +2794,7 @@ function updateFilterClearBtn() {
 // Movers Panel — top gainers/losers by timeframe
 // ============================================================
 
-var activeMoversTab = '5m';
+var activeMoversTab = '1d';
 var moversCollapsed = false;
 
 function getMoversData(tf) {
@@ -2819,11 +2819,25 @@ function getMoversData(tf) {
 }
 
 function renderMovers() {
+  var panel = document.getElementById('moversPanel');
+  // Show panel as soon as instruments exist
+  if (Object.keys(instruments).length > 0) {
+    panel.classList.add('loaded');
+  }
+
   var data = getMoversData(activeMoversTab);
   var gainersEl = document.getElementById('moversGainers');
   var losersEl = document.getElementById('moversLosers');
   gainersEl.innerHTML = '';
   losersEl.innerHTML = '';
+
+  if (data.gainers.length === 0 && data.losers.length === 0) {
+    var msg = document.createElement('div');
+    msg.style.cssText = 'color:var(--text-muted);font-size:10px;padding:4px 0;';
+    msg.textContent = 'Loading...';
+    gainersEl.appendChild(msg);
+    return;
+  }
 
   function buildRow(d, changeKey, container) {
     var row = document.createElement('div');
@@ -2843,12 +2857,6 @@ function renderMovers() {
 
   data.gainers.forEach(function(d) { buildRow(d, data.key, gainersEl); });
   data.losers.forEach(function(d) { buildRow(d, data.key, losersEl); });
-
-  // Show panel once we have data
-  var panel = document.getElementById('moversPanel');
-  if (data.gainers.length > 0 || data.losers.length > 0) {
-    panel.classList.add('loaded');
-  }
 }
 
 // Tab clicks
