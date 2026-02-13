@@ -1,6 +1,6 @@
 //@version=6
 strategy("WaveTrend Momentum Scalper v1",
-         shorttitle="WT Momentum Scalper",
+         shorttitle="WT Scalp",
          overlay=true,
          pyramiding=0,
          process_orders_on_close=false,
@@ -421,26 +421,25 @@ plotshape(shortWtCross and shortWtLevel, "Short Signal", shape.triangledown, loc
 // EQUITY CURVE
 // ══════════════════════════════════════════════════════════════════════════════
 
-if showEquityCurve
-    // Calculate equity metrics
-    equityValue = strategy.equity
-    initialCapital = strategy.initial_capital
-    equityGrowth = ((equityValue - initialCapital) / initialCapital) * 100
+// Calculate equity metrics
+equityValue = strategy.equity
+initialCapital = strategy.initial_capital
+equityGrowth = ((equityValue - initialCapital) / initialCapital) * 100
 
-    // Calculate peak equity for drawdown visualization
-    var float peakEquity = strategy.initial_capital
-    if equityValue > peakEquity
-        peakEquity := equityValue
+// Calculate peak equity for drawdown visualization
+var float peakEquity = strategy.initial_capital
+if equityValue > peakEquity
+    peakEquity := equityValue
 
-    currentDrawdown = peakEquity > 0 ? ((peakEquity - equityValue) / peakEquity) * 100 : 0
+currentDrawdown = peakEquity > 0 ? ((peakEquity - equityValue) / peakEquity) * 100 : 0
 
-    // Plot equity curve
-    plot(equityValue, "Equity", color=color.new(color.blue, 0), linewidth=2)
-    plot(peakEquity, "Peak Equity", color=color.new(color.green, 50), linewidth=1, style=plot.style_stepline)
-    plot(initialCapital, "Initial Capital", color=color.new(color.gray, 50), linewidth=1, style=plot.style_line)
+// Plot equity curve (conditionally displayed based on showEquityCurve setting)
+plot(showEquityCurve ? equityValue : na, "Equity", color=color.new(color.blue, 0), linewidth=2)
+plot(showEquityCurve ? peakEquity : na, "Peak Equity", color=color.new(color.green, 50), linewidth=1, style=plot.style_stepline)
+plot(showEquityCurve ? initialCapital : na, "Initial Capital", color=color.new(color.gray, 50), linewidth=1, style=plot.style_line)
 
-    // Color background based on drawdown
-    bgcolor(currentDrawdown > 10 ? color.new(color.red, 95) :
-             currentDrawdown > 5 ? color.new(color.orange, 95) :
-             equityGrowth > 0 ? color.new(color.green, 97) : na,
-             title="Equity Status")
+// Color background based on drawdown (conditionally displayed)
+bgcolor(showEquityCurve ? (currentDrawdown > 10 ? color.new(color.red, 95) :
+         currentDrawdown > 5 ? color.new(color.orange, 95) :
+         equityGrowth > 0 ? color.new(color.green, 97) : na) : na,
+         title="Equity Status")
