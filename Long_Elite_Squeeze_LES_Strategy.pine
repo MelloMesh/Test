@@ -1,0 +1,469 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © YourTradingViewUsername
+
+//@version=6
+strategy("Long Elite Squeeze LES – Strategy",
+     overlay=true,
+     initial_capital=100000,
+     pyramiding=0,
+     commission_type=strategy.commission.percent,
+     commission_value=0.1,
+     slippage=2,
+     process_orders_on_close=true)
+
+// ═════════════════════════════════════════════════════════════════════════
+// ANTI-REPAINTING MEASURES:
+// 1. All entry logic uses confirmed bar data ([1] indexing where needed)
+// 2. strategy.entry() fires only after bar confirmation
+// 3. No request.security() calls with lookahead enabled
+// 4. All conditions checked with barstate.isconfirmed logic
+// 5. Process orders on close to avoid intrabar repainting
+// ═════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 1: INPUTS
+// ══════════════════════════════════════════════════════════════════════
+
+// General Settings
+useCrypto = input.bool(false, "Use Crypto Mode (wider OB/OS)", group="General")
+riskPct = input.float(1.0, "Risk % per Trade", minval=0.1, maxval=10.0, step=0.1, group="General")
+
+// Session Filter
+useSessionFilter = input.bool(true, "Use Session Filter", group="Session")
+sessionInput = input.session("0930-1600", "Session Time", group="Session")
+
+// Squeeze Momentum Settings
+squeezeBB_Length = input.int(20, "BB Length", minval=1, group="Squeeze Momentum")
+squeezeBB_Mult = input.float(2.0, "BB Multiplier", minval=0.1, step=0.1, group="Squeeze Momentum")
+squeezeKC_Length = input.int(20, "KC Length", minval=1, group="Squeeze Momentum")
+squeezeKC_Mult = input.float(1.5, "KC ATR Multiplier", minval=0.1, step=0.1, group="Squeeze Momentum")
+squeezeMom_Length = input.int(20, "Momentum Length", minval=1, group="Squeeze Momentum")
+minDarkGreenBars = input.int(6, "Min Dark Green Bars for Pattern", minval=3, maxval=20, group="Squeeze Momentum")
+
+// WaveTrend Settings
+wt_ChannelLen = input.int(10, "WT Channel Length", minval=1, group="WaveTrend")
+wt_AvgLen = input.int(21, "WT Average Length", minval=1, group="WaveTrend")
+wtLookback = input.int(5, "WT Cross Lookback Bars", minval=1, maxval=20, group="WaveTrend")
+
+// RVOL Settings
+rvolLength = input.int(20, "RVOL Period", minval=1, group="RVOL")
+rvolMin = input.float(1.5, "Min RVOL", minval=0.5, step=0.1, group="RVOL")
+
+// RSI Settings
+rsiLen = input.int(14, "RSI Length", minval=2, maxval=100, group="RSI")
+
+// Trade Management
+atrLen = input.int(14, "ATR Length", minval=1, group="Trade Management")
+atrMultSL = input.float(1.5, "ATR Multiplier - Stop Loss", minval=0.5, step=0.1, group="Trade Management")
+atrMultTP1 = input.float(2.0, "ATR Multiplier - TP1 (50%)", minval=0.5, step=0.1, group="Trade Management")
+atrMultTP2 = input.float(3.0, "ATR Multiplier - TP2 (50%)", minval=0.5, step=0.1, group="Trade Management")
+maxBarsInTrade = input.int(50, "Max Bars in Trade (0=disabled)", minval=0, group="Trade Management")
+
+// Visual Settings
+showEMAs = input.bool(true, "Show EMAs", group="Visuals")
+showSqueezePane = input.bool(true, "Show Squeeze Pane", group="Visuals")
+showWTPane = input.bool(true, "Show WaveTrend Pane", group="Visuals")
+showHUD = input.bool(true, "Show HUD", group="Visuals")
+showStats = input.bool(true, "Show Backtest Stats", group="Visuals")
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 2: SQUEEZE MOMENTUM (LAZYBEAR STYLE)
+// ══════════════════════════════════════════════════════════════════════
+
+// Bollinger Bands
+basis = ta.sma(close, squeezeBB_Length)
+dev = squeezeBB_Mult * ta.stdev(close, squeezeBB_Length)
+upperBB = basis + dev
+lowerBB = basis - dev
+
+// Keltner Channels
+ma = ta.sma(close, squeezeKC_Length)
+atr = ta.atr(squeezeKC_Length)
+upperKC = ma + squeezeKC_Mult * atr
+lowerKC = ma - squeezeKC_Mult * atr
+
+// Squeeze Detection
+sqzOn = lowerBB > lowerKC and upperBB < upperKC
+sqzOff = lowerBB < lowerKC and upperBB > upperKC
+noSqz = not sqzOn and not sqzOff
+
+// Momentum Calculation (Linear Regression based)
+val = ta.linreg(close - math.avg(math.avg(ta.highest(high, squeezeMom_Length), ta.lowest(low, squeezeMom_Length)), ta.sma(close, squeezeMom_Length)), squeezeMom_Length, 0)
+
+// Momentum Direction & Color Classification
+valPositive = val > 0
+valIncreasing = val > val[1]
+
+// Define 4 colors for momentum histogram
+isDarkGreen = valPositive and valIncreasing
+isLightGreen = valPositive and not valIncreasing
+isDarkRed = not valPositive and not valIncreasing
+isLightRed = not valPositive and valIncreasing
+
+// Bar color assignment
+barColor = isDarkGreen ? color.new(color.green, 0) :
+           isLightGreen ? color.new(color.green, 60) :
+           isDarkRed ? color.new(color.red, 0) :
+           color.new(color.red, 60)
+
+// ══════════════════════════════════════════════════════════════════════
+// SQUEEZE PATTERN DETECTION: 6+ Dark Green bars then Light Green flip
+// ══════════════════════════════════════════════════════════════════════
+
+// Count consecutive dark green bars BEFORE current bar
+var int darkGreenCount = 0
+
+if barstate.isconfirmed
+    if isDarkGreen[1]  // Previous confirmed bar was dark green
+        darkGreenCount := darkGreenCount + 1
+    else
+        darkGreenCount := 0
+
+// Pattern is valid when:
+// 1. We had at least minDarkGreenBars consecutive dark green bars
+// 2. Current bar flips to light green (still positive but momentum slowing)
+squeezePatternLong = barstate.isconfirmed and darkGreenCount >= minDarkGreenBars and isLightGreen and isDarkGreen[1]
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 3: WAVETREND OSCILLATOR (LAZYBEAR STYLE)
+// ══════════════════════════════════════════════════════════════════════
+
+ap = hlc3
+esa = ta.ema(ap, wt_ChannelLen)
+d = ta.ema(math.abs(ap - esa), wt_ChannelLen)
+ci = (ap - esa) / (0.015 * d)
+wt1 = ta.ema(ci, wt_AvgLen)
+wt2 = ta.sma(wt1, 4)
+
+// OB/OS Levels
+wtOB = useCrypto ? 60.0 : 53.0
+wtOS = useCrypto ? -60.0 : -53.0
+
+// WaveTrend Bullish Conditions
+wtBullish = wt1 > wt2
+
+// Check for recent bullish cross within lookback
+wtRecentCross = false
+for i = 0 to wtLookback - 1
+    if ta.crossover(wt1[i], wt2[i])
+        wtRecentCross := true
+        break
+
+wtConditionLong = wtBullish and wtRecentCross
+
+// WaveTrend Bearish Cross (for exit)
+wtCrossDown = ta.crossunder(wt1, wt2)
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 4: RELATIVE VOLUME (RVOL)
+// ══════════════════════════════════════════════════════════════════════
+
+volSma = ta.sma(volume, rvolLength)
+rvol = volSma != 0 ? volume / volSma : 0
+rvolCondition = rvol >= rvolMin
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 5: RSI ALIGNMENT
+// ══════════════════════════════════════════════════════════════════════
+
+rsi = ta.rsi(close, rsiLen)
+
+// RSI Range based on asset type
+rsiLower = useCrypto ? 45.0 : 50.0
+rsiUpper = useCrypto ? 75.0 : 70.0
+
+rsiCondition = rsi > rsiLower and rsi < rsiUpper
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 6: SESSION-AWARE LOGIC
+// ══════════════════════════════════════════════════════════════════════
+
+inSession = not useSessionFilter or not na(time(timeframe.period, sessionInput))
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 7: LONG ENTRY CONDITIONS (LES STYLE)
+// ══════════════════════════════════════════════════════════════════════
+
+// Combined Setup
+longSetup = barstate.isconfirmed and
+           squeezePatternLong and
+           wtConditionLong and
+           rvolCondition and
+           rsiCondition and
+           inSession
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 8: POSITION SIZING & TRADE MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════
+
+atrValue = ta.atr(atrLen)
+
+// Calculate position size based on risk %
+var float entryPrice = na
+var float stopLoss = na
+var float takeProfit1 = na
+var float takeProfit2 = na
+var int entryBar = na
+var int consecutiveDarkGreenAfterEntry = 0
+var bool watchingExhaustion = false
+
+// Position sizing
+calculatePositionSize(riskPercent, atrMult) =>
+    if atrValue > 0
+        riskAmount = strategy.equity * (riskPercent / 100.0)
+        stopDistance = atrMult * atrValue
+        posSize = riskAmount / stopDistance
+        posSize
+    else
+        0.0
+
+posSize = calculatePositionSize(riskPct, atrMultSL)
+
+// ══════════════════════════════════════════════════════════════════════
+// ENTRY LOGIC
+// ══════════════════════════════════════════════════════════════════════
+
+if longSetup and strategy.position_size == 0
+    entryPrice := close
+    stopLoss := entryPrice - atrMultSL * atrValue
+    takeProfit1 := entryPrice + atrMultTP1 * atrValue
+    takeProfit2 := entryPrice + atrMultTP2 * atrValue
+    entryBar := bar_index
+    consecutiveDarkGreenAfterEntry := 0
+    watchingExhaustion := false
+
+    strategy.entry("LES_Long", strategy.long, qty=posSize)
+
+// ══════════════════════════════════════════════════════════════════════
+// EXIT LOGIC - ATR-BASED STOPS AND TARGETS
+// ══════════════════════════════════════════════════════════════════════
+
+if strategy.position_size > 0
+    // ATR-based exits with partials
+    strategy.exit("LES_TP1", from_entry="LES_Long",
+                 limit=takeProfit1,
+                 stop=stopLoss,
+                 qty_percent=50)
+
+    strategy.exit("LES_TP2", from_entry="LES_Long",
+                 limit=takeProfit2,
+                 stop=stopLoss,
+                 qty_percent=50)
+
+// ══════════════════════════════════════════════════════════════════════
+// AUTOMATED EXIT CONDITIONS (LES SPECIFIC)
+// ══════════════════════════════════════════════════════════════════════
+
+if strategy.position_size > 0 and barstate.isconfirmed
+
+    // Track consecutive dark green bars after entry
+    if isDarkGreen
+        consecutiveDarkGreenAfterEntry := consecutiveDarkGreenAfterEntry + 1
+    else
+        if consecutiveDarkGreenAfterEntry >= 2
+            watchingExhaustion := true
+        consecutiveDarkGreenAfterEntry := 0
+
+    // Exit on exhaustion: after 2+ dark green bars, if we flip to light green or red
+    if watchingExhaustion and (isLightGreen or isDarkRed or isLightRed)
+        strategy.close("LES_Long", comment="Exhaustion")
+        watchingExhaustion := false
+
+    // Exit on WaveTrend bearish cross
+    if wtCrossDown
+        strategy.close("LES_Long", comment="WT Cross Down")
+        watchingExhaustion := false
+
+    // Time-based exit
+    if maxBarsInTrade > 0 and (bar_index - entryBar) >= maxBarsInTrade
+        strategy.close("LES_Long", comment="Max Bars")
+        watchingExhaustion := false
+
+// Reset tracking when position closes
+if strategy.position_size == 0
+    consecutiveDarkGreenAfterEntry := 0
+    watchingExhaustion := false
+    entryBar := na
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 9: VISUAL ELEMENTS
+// ══════════════════════════════════════════════════════════════════════
+
+// EMAs on price chart
+ema21 = ta.ema(close, 21)
+ema50 = ta.ema(close, 50)
+
+plot(showEMAs ? ema21 : na, "EMA 21", color.new(color.blue, 0), 2)
+plot(showEMAs ? ema50 : na, "EMA 50", color.new(color.orange, 0), 2)
+
+// Background highlight on setup bar
+bgcolor(longSetup ? color.new(color.green, 85) : na, title="Long Setup Background")
+
+// Entry/Exit markers
+plotshape(longSetup and strategy.position_size == 0, "Setup Signal",
+         shape.triangleup, location.belowbar, color.new(color.lime, 0), size=size.small)
+
+// ══════════════════════════════════════════════════════════════════════
+// SQUEEZE MOMENTUM PANE
+// ══════════════════════════════════════════════════════════════════════
+
+plot(showSqueezePane ? val : na, "Squeeze Momentum", barColor, 4, plot.style_histogram)
+plot(showSqueezePane ? 0 : na, "Zero Line", color.gray, 1)
+
+// Mark squeeze pattern with triangle
+plotshape(showSqueezePane and squeezePatternLong, "Squeeze Pattern",
+         shape.triangleup, location.top, color.new(color.yellow, 0), size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════
+// WAVETREND PANE
+// ══════════════════════════════════════════════════════════════════════
+
+hline(showWTPane ? wtOB : na, "WT OB", color.red, hline.style_dotted)
+hline(showWTPane ? 0 : na, "WT Zero", color.gray)
+hline(showWTPane ? wtOS : na, "WT OS", color.green, hline.style_dotted)
+
+plot(showWTPane ? wt1 : na, "WT1", color.new(color.aqua, 0), 2)
+plot(showWTPane ? wt2 : na, "WT2", color.new(color.red, 0), 1)
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 10: HUD - FILTER STATUS TABLE
+// ══════════════════════════════════════════════════════════════════════
+
+if showHUD and barstate.islast
+    var table hudTable = table.new(position.top_right, 2, 7,
+                                    border_width=1,
+                                    border_color=color.gray,
+                                    frame_width=1,
+                                    frame_color=color.gray)
+
+    // Header
+    table.cell(hudTable, 0, 0, "LES FILTER STATUS",
+              text_color=color.white, bgcolor=color.new(color.blue, 30),
+              text_size=size.normal)
+    table.merge_cells(hudTable, 0, 0, 1, 0)
+
+    // Position Status
+    posStatus = strategy.position_size > 0 ? "IN TRADE ✓" : "WAITING"
+    posColor = strategy.position_size > 0 ? color.new(color.green, 30) : color.new(color.gray, 50)
+    table.cell(hudTable, 0, 1, "Status",
+              text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(hudTable, 1, 1, posStatus,
+              text_color=color.white, bgcolor=posColor)
+
+    // Individual Filters
+    // Squeeze Pattern
+    sqzStatus = squeezePatternLong ? "✓ PASS" : "✗ FAIL"
+    sqzColor = squeezePatternLong ? color.new(color.green, 70) : color.new(color.red, 70)
+    table.cell(hudTable, 0, 2, "Squeeze", text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(hudTable, 1, 2, sqzStatus, text_color=color.white, bgcolor=sqzColor)
+
+    // WaveTrend
+    wtStatus = wtConditionLong ? "✓ PASS" : "✗ FAIL"
+    wtColor = wtConditionLong ? color.new(color.green, 70) : color.new(color.red, 70)
+    table.cell(hudTable, 0, 3, "WaveTrend", text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(hudTable, 1, 3, wtStatus, text_color=color.white, bgcolor=wtColor)
+
+    // RVOL
+    rvolStatus = rvolCondition ? "✓ PASS (" + str.tostring(rvol, "#.##") + ")" : "✗ FAIL (" + str.tostring(rvol, "#.##") + ")"
+    rvolColor = rvolCondition ? color.new(color.green, 70) : color.new(color.red, 70)
+    table.cell(hudTable, 0, 4, "RVOL", text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(hudTable, 1, 4, rvolStatus, text_color=color.white, bgcolor=rvolColor)
+
+    // RSI
+    rsiStatus = rsiCondition ? "✓ PASS (" + str.tostring(rsi, "#.#") + ")" : "✗ FAIL (" + str.tostring(rsi, "#.#") + ")"
+    rsiColor = rsiCondition ? color.new(color.green, 70) : color.new(color.red, 70)
+    table.cell(hudTable, 0, 5, "RSI", text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(hudTable, 1, 5, rsiStatus, text_color=color.white, bgcolor=rsiColor)
+
+    // Session
+    sessStatus = inSession ? "✓ IN SESSION" : "✗ OUT"
+    sessColor = inSession ? color.new(color.green, 70) : color.new(color.red, 70)
+    table.cell(hudTable, 0, 6, "Session", text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(hudTable, 1, 6, sessStatus, text_color=color.white, bgcolor=sessColor)
+
+// ══════════════════════════════════════════════════════════════════════
+// SECTION 11: BACKTEST STATISTICS TABLE
+// ══════════════════════════════════════════════════════════════════════
+
+if showStats and barstate.islast
+    var table statsTable = table.new(position.bottom_right, 2, 6,
+                                     border_width=1,
+                                     border_color=color.gray,
+                                     frame_width=1,
+                                     frame_color=color.gray)
+
+    // Calculate statistics
+    totalTrades = strategy.closedtrades
+    wonTrades = 0
+    lostTrades = 0
+    totalProfit = 0.0
+    totalLoss = 0.0
+    maxDD = 0.0
+    totalR = 0.0
+
+    if totalTrades > 0
+        for i = 0 to totalTrades - 1
+            tradeProfit = strategy.closedtrades.profit(i)
+            if tradeProfit > 0
+                wonTrades := wonTrades + 1
+                totalProfit := totalProfit + tradeProfit
+            else
+                lostTrades := lostTrades + 1
+                totalLoss := totalLoss + math.abs(tradeProfit)
+
+            // Simple R calculation (profit / initial risk)
+            entryP = strategy.closedtrades.entry_price(i)
+            exitP = strategy.closedtrades.exit_price(i)
+            if entryP > 0 and atrValue > 0
+                riskAmount = atrMultSL * atrValue
+                profitAmount = exitP - entryP
+                rMultiple = profitAmount / riskAmount
+                totalR := totalR + rMultiple
+
+    winRate = totalTrades > 0 ? (wonTrades / totalTrades) * 100 : 0
+    profitFactor = totalLoss > 0 ? totalProfit / totalLoss : totalProfit > 0 ? 99.99 : 0
+    avgR = totalTrades > 0 ? totalR / totalTrades : 0
+
+    // Get max drawdown from strategy
+    maxDD := strategy.max_drawdown
+    maxDDPct = strategy.equity > 0 ? (maxDD / strategy.equity) * 100 : 0
+
+    // Header
+    table.cell(statsTable, 0, 0, "BACKTEST STATS",
+              text_color=color.white, bgcolor=color.new(color.purple, 30),
+              text_size=size.normal)
+    table.merge_cells(statsTable, 0, 0, 1, 0)
+
+    // Total Trades
+    table.cell(statsTable, 0, 1, "Total Trades",
+              text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(statsTable, 1, 1, str.tostring(totalTrades),
+              text_color=color.white, bgcolor=color.new(color.gray, 80))
+
+    // Win Rate
+    table.cell(statsTable, 0, 2, "Win Rate %",
+              text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(statsTable, 1, 2, str.tostring(winRate, "#.##") + "%",
+              text_color=color.white, bgcolor=color.new(color.gray, 80))
+
+    // Profit Factor
+    table.cell(statsTable, 0, 3, "Profit Factor",
+              text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(statsTable, 1, 3, str.tostring(profitFactor, "#.##"),
+              text_color=color.white, bgcolor=color.new(color.gray, 80))
+
+    // Max Drawdown
+    table.cell(statsTable, 0, 4, "Max DD %",
+              text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(statsTable, 1, 4, str.tostring(maxDDPct, "#.##") + "%",
+              text_color=color.white, bgcolor=color.new(color.red, 70))
+
+    // Avg R Multiple
+    table.cell(statsTable, 0, 5, "Avg R Multiple",
+              text_color=color.white, bgcolor=color.new(color.gray, 70))
+    table.cell(statsTable, 1, 5, str.tostring(avgR, "#.##") + "R",
+              text_color=color.white, bgcolor=color.new(color.gray, 80))
+
+// ══════════════════════════════════════════════════════════════════════
+// END OF STRATEGY
+// ══════════════════════════════════════════════════════════════════════
