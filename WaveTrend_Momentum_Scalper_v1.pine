@@ -1,0 +1,130 @@
+//@version=6
+strategy("WaveTrend Momentum Scalper v1",
+         shorttitle="WT Momentum Scalper",
+         overlay=true,
+         pyramiding=0,
+         process_orders_on_close=false,
+         commission_type=strategy.commission.percent,
+         commission_value=0.1,
+         default_qty_type=strategy.percent_of_equity,
+         default_qty_value=5)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// WaveTrend Inputs
+channelLen = input.int(10, "WT Channel Length", minval=1)
+avgLen = input.int(21, "WT Average Length", minval=1)
+osLevel = input.int(-60, "Oversold Level", maxval=0)
+obLevel = input.int(60, "Overbought Level", minval=0)
+
+// Volume Filter
+volMultiplier = input.float(1.5, "Volume Multiplier", minval=0.1, step=0.1)
+
+// RSI Inputs
+rsiLen = input.int(14, "RSI Length", minval=1)
+
+// ATR Exit Inputs
+atrLen = input.int(14, "ATR Length", minval=1)
+atrMultSL = input.float(1.5, "ATR Multiplier - Stop Loss", minval=0.1, step=0.1)
+atrMultTP = input.float(3.0, "ATR Multiplier - Take Profit", minval=0.1, step=0.1)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INDICATOR CALCULATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// WaveTrend Oscillator
+ap = hlc3
+esa = ta.ema(ap, channelLen)
+d = ta.ema(math.abs(ap - esa), channelLen)
+ci = (ap - esa) / (0.015 * d)
+wt1 = ta.ema(ci, avgLen)
+wt2 = ta.sma(wt1, 4)
+
+// 200 EMA
+ema200 = ta.ema(close, 200)
+
+// Volume SMA
+volSma = ta.sma(volume, 20)
+
+// ATR
+atr = ta.atr(atrLen)
+
+// RSI
+rsi = ta.rsi(close, rsiLen)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ENTRY CONDITIONS (Using [1] offset for confirmed bars)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Long Entry Conditions
+longWtCross = ta.crossover(wt1[1], wt2[1])
+longWtLevel = wt1[1] < osLevel
+longTrend = close[1] > ema200[1]
+longVolume = volume[1] > volSma[1] * volMultiplier
+longRsi = rsi[1] > 30 and rsi[1] < 50
+
+longCondition = longWtCross and longWtLevel and longTrend and longVolume and longRsi
+
+// Short Entry Conditions
+shortWtCross = ta.crossunder(wt1[1], wt2[1])
+shortWtLevel = wt1[1] > obLevel
+shortTrend = close[1] < ema200[1]
+shortVolume = volume[1] > volSma[1] * volMultiplier
+shortRsi = rsi[1] > 50 and rsi[1] < 70
+
+shortCondition = shortWtCross and shortWtLevel and shortTrend and shortVolume and shortRsi
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STRATEGY EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+if longCondition
+    longStop = close - atrMultSL * atr
+    longProfit = close + atrMultTP * atr
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=longStop, limit=longProfit)
+
+if shortCondition
+    shortStop = close + atrMultSL * atr
+    shortProfit = close - atrMultTP * atr
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=shortStop, limit=shortProfit)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUAL ELEMENTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Plot 200 EMA on chart
+plot(ema200, "EMA 200", color=color.new(color.yellow, 0), linewidth=2)
+
+// Background colors for signals
+bgcolor(longCondition ? color.new(color.green, 90) : na, title="Long Signal BG")
+bgcolor(shortCondition ? color.new(color.red, 90) : na, title="Short Signal BG")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WAVETREND INDICATOR PANE
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Plot WaveTrend lines
+plot(wt1, "WT1", color=color.new(color.green, 0), linewidth=2)
+plot(wt2, "WT2", color=color.new(color.red, 0), linewidth=1)
+
+// Plot OB/OS levels
+hline(obLevel, "Overbought", color=color.new(color.red, 50), linestyle=hline.style_dashed)
+hline(osLevel, "Oversold", color=color.new(color.green, 50), linestyle=hline.style_dashed)
+hline(0, "Zero Line", color=color.new(color.gray, 50), linestyle=hline.style_solid)
+
+// Fill OB/OS zones
+upperBand = hline(100, "Upper Band", color=color.new(color.gray, 100))
+lowerBand = hline(-100, "Lower Band", color=color.new(color.gray, 100))
+obLine = hline(obLevel, linestyle=hline.style_solid, color=color.new(color.gray, 100))
+osLine = hline(osLevel, linestyle=hline.style_solid, color=color.new(color.gray, 100))
+
+fill(upperBand, obLine, color=color.new(color.red, 95), title="Overbought Zone")
+fill(lowerBand, osLine, color=color.new(color.green, 95), title="Oversold Zone")
+
+// Plot crossover/crossunder signals
+plotshape(longWtCross and longWtLevel, "Long Signal", shape.triangleup, location.bottom, color.new(color.green, 0), size=size.small)
+plotshape(shortWtCross and shortWtLevel, "Short Signal", shape.triangledown, location.top, color.new(color.red, 0), size=size.small)
