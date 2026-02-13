@@ -28,7 +28,11 @@ rsiLen = input.int(14, "RSI Length", minval=1)
 // ATR Exit Inputs
 atrLen = input.int(14, "ATR Length", minval=1)
 atrMultSL = input.float(1.5, "ATR Multiplier - Stop Loss", minval=0.1, step=0.1)
-atrMultTP = input.float(3.0, "ATR Multiplier - Take Profit", minval=0.1, step=0.1)
+atrMultTP1 = input.float(1.5, "ATR Multiplier - TP1 (50%)", minval=0.1, step=0.1)
+atrMultTP2 = input.float(3.0, "ATR Multiplier - TP2 (50%)", minval=0.1, step=0.1)
+
+// Time-based Exit
+maxBars = input.int(20, "Max Bars in Trade", minval=1)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // INDICATOR CALCULATIONS
@@ -80,17 +84,70 @@ shortCondition = shortWtCross and shortWtLevel and shortTrend and shortVolume an
 // STRATEGY EXECUTION
 // ══════════════════════════════════════════════════════════════════════════════
 
-if longCondition
-    longStop = close - atrMultSL * atr
-    longProfit = close + atrMultTP * atr
-    strategy.entry("Long", strategy.long)
-    strategy.exit("Exit Long", "Long", stop=longStop, limit=longProfit)
+// Track entry bar and price
+var float entryPrice = na
+var int entryBar = na
 
+// Long Entry
+if longCondition
+    entryPrice := close
+    entryBar := bar_index
+    strategy.entry("Long", strategy.long)
+
+// Short Entry
 if shortCondition
-    shortStop = close + atrMultSL * atr
-    shortProfit = close - atrMultTP * atr
+    entryPrice := close
+    entryBar := bar_index
     strategy.entry("Short", strategy.short)
-    strategy.exit("Exit Short", "Short", stop=shortStop, limit=shortProfit)
+
+// Calculate bars in trade
+barsInTrade = strategy.position_size != 0 ? bar_index - entryBar : 0
+
+// Long Exits
+if strategy.position_size > 0
+    // Calculate exit levels
+    longStop = entryPrice - atrMultSL * atr
+    longTP1 = entryPrice + atrMultTP1 * atr
+    longTP2 = entryPrice + atrMultTP2 * atr
+
+    // TP1: Close 50% and move stop to breakeven
+    strategy.exit("Long TP1", "Long",
+                 stop=longStop,
+                 limit=longTP1,
+                 qty_percent=50)
+
+    // TP2: Close remaining 50% with breakeven stop
+    strategy.exit("Long TP2", "Long",
+                 stop=entryPrice,
+                 limit=longTP2,
+                 qty_percent=50)
+
+    // Time-based exit
+    if barsInTrade >= maxBars
+        strategy.close("Long", comment="Time Exit")
+
+// Short Exits
+if strategy.position_size < 0
+    // Calculate exit levels
+    shortStop = entryPrice + atrMultSL * atr
+    shortTP1 = entryPrice - atrMultTP1 * atr
+    shortTP2 = entryPrice - atrMultTP2 * atr
+
+    // TP1: Close 50% and move stop to breakeven
+    strategy.exit("Short TP1", "Short",
+                 stop=shortStop,
+                 limit=shortTP1,
+                 qty_percent=50)
+
+    // TP2: Close remaining 50% with breakeven stop
+    strategy.exit("Short TP2", "Short",
+                 stop=entryPrice,
+                 limit=shortTP2,
+                 qty_percent=50)
+
+    // Time-based exit
+    if barsInTrade >= maxBars
+        strategy.close("Short", comment="Time Exit")
 
 // ══════════════════════════════════════════════════════════════════════════════
 // VISUAL ELEMENTS
@@ -98,6 +155,18 @@ if shortCondition
 
 // Plot 200 EMA on chart
 plot(ema200, "EMA 200", color=color.new(color.yellow, 0), linewidth=2)
+
+// Plot TP levels when in position
+longTP1Level = strategy.position_size > 0 ? entryPrice + atrMultTP1 * atr : na
+longTP2Level = strategy.position_size > 0 ? entryPrice + atrMultTP2 * atr : na
+shortTP1Level = strategy.position_size < 0 ? entryPrice - atrMultTP1 * atr : na
+shortTP2Level = strategy.position_size < 0 ? entryPrice - atrMultTP2 * atr : na
+
+plot(longTP1Level, "Long TP1", color=color.new(color.green, 30), style=plot.style_linebr, linewidth=1)
+plot(longTP2Level, "Long TP2", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
+plot(shortTP1Level, "Short TP1", color=color.new(color.red, 30), style=plot.style_linebr, linewidth=1)
+plot(shortTP2Level, "Short TP2", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(strategy.position_size != 0 ? entryPrice : na, "Breakeven", color=color.new(color.blue, 0), style=plot.style_linebr, linewidth=1)
 
 // Background colors for signals
 bgcolor(longCondition ? color.new(color.green, 90) : na, title="Long Signal BG")
