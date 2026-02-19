@@ -7,6 +7,14 @@ Single source of truth for all thresholds, weights, and parameters.
 TOP_N_SYMBOLS: int = 30          # number of top-volume USDT pairs to scan
 QUOTE_ASSET: str = "USDT"        # only pairs quoted in this asset
 
+# Base assets that are stablecoins or pegged — skip entirely (not tradeable setups)
+EXCLUDED_BASE_ASSETS: set[str] = {
+    "USDC", "FDUSD", "BUSD", "TUSD", "DAI", "USDP",  # stablecoins
+    "PAXG", "XAUT",                                     # gold-pegged
+    "EUR", "GBP", "AUD",                               # fiat-pegged
+    "USD1", "USD0",                                     # synthetic dollars
+}
+
 # ── Timeframes ────────────────────────────────────────────────────────────────
 TIMEFRAMES: list[str] = ["15m", "1h", "4h"]
 DEFAULT_TIMEFRAME: str = "1h"

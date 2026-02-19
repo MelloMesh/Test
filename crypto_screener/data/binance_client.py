@@ -84,12 +84,15 @@ def get_top_symbols(n: int = config.TOP_N_SYMBOLS) -> list[str]:
 
     data: list[dict] = _get("/api/v3/ticker/24hr")  # type: ignore[assignment]
 
+    quote = config.QUOTE_ASSET
+    excluded = config.EXCLUDED_BASE_ASSETS
     usdt_pairs = [
         d for d in data
-        if d["symbol"].endswith(config.QUOTE_ASSET)
-        and not d["symbol"].endswith(f"DOWN{config.QUOTE_ASSET}")
-        and not d["symbol"].endswith(f"UP{config.QUOTE_ASSET}")
+        if d["symbol"].endswith(quote)
+        and not d["symbol"].endswith(f"DOWN{quote}")
+        and not d["symbol"].endswith(f"UP{quote}")
         and d.get("status", "TRADING") == "TRADING"
+        and d["symbol"][: -len(quote)] not in excluded
     ]
 
     ranked = sorted(usdt_pairs, key=lambda d: float(d["quoteVolume"]), reverse=True)

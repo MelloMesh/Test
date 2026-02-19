@@ -67,48 +67,82 @@ def _scan_one(
 
 # ── Rich table rendering ─────────────────────────────────────────────────────
 
-def _direction_color(direction: str) -> str:
-    return "bright_green" if direction == "LONG" else "bright_red"
+# Human-readable labels for each signal code
+_SIGNAL_LABELS: dict[str, str] = {
+    "RSI_OS":          "RSI oversold",
+    "RSI_OB":          "RSI overbought",
+    "RSI_BULL_DIV":    "RSI bullish divergence",
+    "RSI_BEAR_DIV":    "RSI bearish divergence",
+    "RSI_MID_BULL":    "RSI momentum rising",
+    "RSI_MID_BEAR":    "RSI momentum falling",
+    "BB_LOWER":        "price below lower band",
+    "BB_UPPER":        "price above upper band",
+    "BB_SQUEEZE_BULL": "band squeeze breakout ▲",
+    "BB_SQUEEZE_BEAR": "band squeeze breakout ▼",
+    "BB_PCT_B_LOW":    "price near lower band",
+    "BB_PCT_B_HIGH":   "price near upper band",
+    "VOL_SPIKE":       "volume spike",
+    "OBV_BULL_DIV":    "OBV bullish divergence",
+    "OBV_BEAR_DIV":    "OBV bearish divergence",
+    "OBV_CONFIRM":     "volume confirming",
+    "MFI_OS":          "money flow oversold",
+    "MFI_OB":          "money flow overbought",
+}
 
 
-def _gate_str(r: ScoreResult) -> str:
-    """Compact gate status: green label = passed, red = failed."""
-    parts = []
-    parts.append("[green]SCORE[/green]" if r.passes_threshold else "[red]SCORE[/red]")
-    parts.append("[green]CAT[/green]" if r.passes_category_gate else "[red]CAT[/red]")
-    parts.append("[green]VOL[/green]" if r.passes_volume_gate else "[red]VOL[/red]")
-    return " ".join(parts)
+def _humanize_signals(signals: list[str]) -> str:
+    """Convert signal code list to readable comma-separated string."""
+    return ", ".join(_SIGNAL_LABELS.get(s, s) for s in signals) if signals else "-"
+
+
+def _strength_stars(score: float) -> tuple[str, str]:
+    """
+    Return (star_markup, label) for a given abs(composite_score).
+
+    Scale:  ≥4.0 → ★★★★★  STRONG
+            ≥3.0 → ★★★★☆  HIGH
+            ≥2.0 → ★★★☆☆  MEDIUM
+            ≥1.5 → ★★☆☆☆  LOW
+            <1.5 → ★☆☆☆☆  WEAK
+    """
+    abs_score = abs(score)
+    if abs_score >= 4.0:
+        return "[bold yellow]★★★★★[/bold yellow]", "STRONG"
+    elif abs_score >= 3.0:
+        return "[yellow]★★★★☆[/yellow]", "HIGH"
+    elif abs_score >= 2.0:
+        return "[cyan]★★★☆☆[/cyan]", "MEDIUM"
+    elif abs_score >= 1.5:
+        return "[dim cyan]★★☆☆☆[/dim cyan]", "LOW"
+    else:
+        return "[dim]★☆☆☆☆[/dim]", "WEAK"
 
 
 def render_table(results: list[ScoreResult], show_all: bool = False) -> None:
     """
-    Render the ranked screener table using rich.
+    Render the screener table.
 
-    show_all=False (default): only surface setups that passed all 3 gates.
-    show_all=True:            show every scored setup with a GATES column
-                              indicating which gates passed (green) or failed (red).
-                              Rows that failed any gate are dimmed.
+    Default mode: only confirmed setups that passed all 3 gates.
+    --show-all:   every setup scoring ≥ 1.5 (filters single-signal noise),
+                  dimmed when gates not fully passed.
     """
+    MIN_SHOW_ALL_SCORE = 1.5  # hide trivial single-signal noise in --show-all
+
     if show_all:
-        rows = [r for r in results if r.signals]
-        rows.sort(key=lambda r: r.confidence, reverse=True)
-        title = f"{config.RICH_TABLE_TITLE} — ALL SIGNALS"
+        rows = [r for r in results if abs(r.composite_score) >= MIN_SHOW_ALL_SCORE]
+        rows.sort(key=lambda r: abs(r.composite_score), reverse=True)
+        title = "Crypto Screener — Watchlist"
     else:
         rows = [r for r in results if r.surfaced]
-        rows.sort(key=lambda r: r.confidence, reverse=True)
-        title = config.RICH_TABLE_TITLE
+        rows.sort(key=lambda r: abs(r.composite_score), reverse=True)
+        title = "Crypto Screener — Trade Setups"
 
     if not rows:
         if show_all:
-            console.print("\n[yellow]No signals fired at all.[/yellow]")
-            console.print("[dim]Try --symbols 50 or adding more timeframes.[/dim]")
+            console.print("\n[yellow]No setups scored ≥ 1.5. Try --symbols 50.[/yellow]")
         else:
-            console.print("\n[yellow]No setups crossed the confidence threshold.[/yellow]")
-            console.print(
-                f"[dim]Threshold: {config.COMPOSITE_THRESHOLD} | "
-                f"Min categories: {config.MIN_SIGNAL_CATEGORIES} | "
-                f"Try --show-all to see everything scored.[/dim]"
-            )
+            console.print("\n[yellow]No confirmed setups right now.[/yellow]")
+            console.print("[dim]Run with --show-all to see developing setups.[/dim]")
         return
 
     table = Table(
@@ -118,61 +152,49 @@ def render_table(results: list[ScoreResult], show_all: bool = False) -> None:
         header_style="bold cyan",
         border_style="dim",
         expand=False,
+        padding=(0, 1),
     )
 
-    table.add_column("SYMBOL", style="bold white", no_wrap=True)
-    table.add_column("TF", justify="center", style="dim white")
-    table.add_column("DIR", justify="center")
-    table.add_column("SCORE", justify="right")
-    table.add_column("CONF", justify="right")
-    if show_all:
-        table.add_column("GATES", justify="center")
-    table.add_column("SIGNALS FIRED", style="dim")
+    table.add_column("SYMBOL",   style="bold white", no_wrap=True)
+    table.add_column("TF",       justify="center", style="white")
+    table.add_column("TRADE",    justify="center")
+    table.add_column("STRENGTH", justify="left")
+    table.add_column("WHY",      style="dim")
 
     for r in rows:
-        dir_color = _direction_color(r.direction)
-        score_fmt = f"{r.composite_score:+.2f}"
-        conf_fmt = f"{r.confidence:.2f}"
-        signals_str = ", ".join(r.signals) if r.signals else "-"
+        is_long = r.direction == "LONG"
+        trade_markup = "[bright_green]▲ BUY[/bright_green]" if is_long else "[bright_red]▼ SELL[/bright_red]"
+        stars, _ = _strength_stars(r.composite_score)
+        why = _humanize_signals(r.signals)
         row_style = "" if r.surfaced else "dim"
 
-        if show_all:
-            table.add_row(
-                r.symbol,
-                r.timeframe,
-                f"[{dir_color}]{r.direction}[/{dir_color}]",
-                f"[bold]{score_fmt}[/bold]",
-                conf_fmt,
-                _gate_str(r),
-                signals_str,
-                style=row_style,
-            )
-        else:
-            table.add_row(
-                r.symbol,
-                r.timeframe,
-                f"[{dir_color}]{r.direction}[/{dir_color}]",
-                f"[bold]{score_fmt}[/bold]",
-                conf_fmt,
-                signals_str,
-            )
+        table.add_row(
+            r.symbol,
+            r.timeframe,
+            trade_markup,
+            stars,
+            why,
+            style=row_style,
+        )
 
     console.print()
     console.print(table)
 
     passed = sum(1 for r in rows if r.surfaced)
+    ts = __import__("datetime").datetime.utcnow().strftime("%H:%M UTC")
+
     if show_all:
         console.print(
-            f"[dim]{len(rows)} scored setups | "
-            f"{passed} passed all gates (bright rows) | "
-            f"Threshold ≥ {config.COMPOSITE_THRESHOLD} | "
-            f"Ranked by confidence DESC[/dim]\n"
+            f"[dim]{len(rows)} developing setups | "
+            f"{passed} confirmed (full strength, bright rows) | "
+            f"★★★★★ = score ≥ 4.0  ★★★★☆ = ≥ 3.0  ★★★☆☆ = ≥ 2.0 | "
+            f"Scanned at {ts}[/dim]\n"
         )
     else:
         console.print(
-            f"[dim]{passed} setup(s) passed all gates | "
-            f"Threshold ≥ {config.COMPOSITE_THRESHOLD} | "
-            f"Use --show-all to see full scored universe[/dim]\n"
+            f"[dim]{passed} confirmed setup(s) | "
+            f"★★★★★ = STRONG  ★★★★☆ = HIGH  ★★★☆☆ = MEDIUM | "
+            f"Scanned at {ts}[/dim]\n"
         )
 
 
