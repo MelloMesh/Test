@@ -229,33 +229,50 @@ def run_scan(
                   f"= {total_jobs} jobs...[/dim]")
 
     all_results: list[ScoreResult] = []
+    failed = 0
 
-    with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(
-                _scan_one,
-                symbol,
-                tf,
-                universe_volumes,
-                vol_map.get(symbol, 0.0),
-                threshold,
-            ): (symbol, tf)
-            for symbol in symbols
-            for tf in timeframes
-        }
+    executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS)
+    futures = {
+        executor.submit(
+            _scan_one,
+            symbol,
+            tf,
+            universe_volumes,
+            vol_map.get(symbol, 0.0),
+            threshold,
+        ): (symbol, tf)
+        for symbol in symbols
+        for tf in timeframes
+    }
 
+    try:
         completed = 0
         for future in as_completed(futures):
             completed += 1
-            result = future.result()
+            try:
+                result = future.result()
+            except Exception:
+                failed += 1
+                result = None
             if result is not None:
                 all_results.append(result)
 
             if completed % 20 == 0 or completed == total_jobs:
-                console.print(f"[dim]  {completed}/{total_jobs} scanned...[/dim]",
-                              end="\r")
+                console.print(
+                    f"[dim]  {completed}/{total_jobs} scanned"
+                    + (f" ({failed} failed)" if failed else "")
+                    + "...[/dim]",
+                    end="\r",
+                )
+    except KeyboardInterrupt:
+        # Cancel everything still pending — stops retry loops in worker threads
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
 
-    console.print()
+    executor.shutdown(wait=False)
+    console.print(" " * 60, end="\r")  # clear progress line
+    if failed:
+        console.print(f"[dim]  {failed}/{total_jobs} requests failed (network/timeout) — skipped[/dim]")
     render_table(all_results, show_all=show_all)
     return all_results
 

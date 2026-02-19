@@ -22,15 +22,15 @@ KLINE_LIMIT: int = 300           # candles fetched per timeframe (≥ 120 for BB
 BACKTEST_KLINE_LIMIT: int = 1000 # ~6 months on 1h; ~10 months on 4h
 
 # ── Concurrency ───────────────────────────────────────────────────────────────
-MAX_WORKERS: int = 20            # parallel fetch threads (safe for 200 symbols)
+MAX_WORKERS: int = 15            # parallel fetch threads; 15 keeps us well under Binance rate limits
 
 # ── Watch mode ────────────────────────────────────────────────────────────────
 WATCH_INTERVAL_SECONDS: int = 60  # seconds between scan cycles in --watch mode
 
 # ── Binance REST ──────────────────────────────────────────────────────────────
 BINANCE_BASE_URL: str = "https://api.binance.com"
-REQUEST_TIMEOUT: int = 10        # seconds
-MAX_RETRIES: int = 4             # exponential backoff retries
+REQUEST_TIMEOUT: int = 6         # seconds; fail fast so timed-out symbols don't stall the pool
+MAX_RETRIES: int = 1             # one retry is enough; bad symbols are skipped, not retried forever
 CACHE_TTL_SECONDS: int = 55      # slightly under WATCH_INTERVAL so cache expires between cycles
 
 # ── RSI Parameters ───────────────────────────────────────────────────────────

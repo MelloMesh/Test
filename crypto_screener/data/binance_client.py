@@ -14,15 +14,28 @@ from __future__ import annotations
 
 import time
 import logging
-from functools import lru_cache
 from typing import Optional
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from crypto_screener import config
 
 logger = logging.getLogger(__name__)
+
+# ── Persistent HTTP session with connection pooling ───────────────────────────
+# Reuses TCP connections across all requests — critical for 200-symbol scans.
+# urllib3 handles the connection pool; we do our own retry logic on top.
+_session = requests.Session()
+_adapter = HTTPAdapter(
+    pool_connections=30,
+    pool_maxsize=30,
+    max_retries=Retry(total=0),  # no urllib3 retries — we handle them ourselves
+)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
 
 # ── In-memory cache ───────────────────────────────────────────────────────────
 _cache: dict[str, tuple[float, object]] = {}
@@ -50,27 +63,27 @@ def clear_cache() -> None:
 
 def _get(path: str, params: dict | None = None) -> dict | list:
     """
-    GET request with exponential backoff retry.
-    Mirrors the JS apiFetch() retry pattern: wait 2s → 4s → 8s → 16s.
+    GET request using the shared session (connection pooling) with exponential
+    backoff retry. Retry logs are DEBUG-level to keep watch-mode output clean.
     """
     url = config.BINANCE_BASE_URL + path
-    delay = 2.0
+    delay = 1.0
     last_exc: Exception = RuntimeError("unreachable")
 
     for attempt in range(config.MAX_RETRIES + 1):
         try:
-            resp = requests.get(url, params=params, timeout=config.REQUEST_TIMEOUT)
+            resp = _session.get(url, params=params, timeout=config.REQUEST_TIMEOUT)
             resp.raise_for_status()
             return resp.json()
         except requests.RequestException as exc:
             last_exc = exc
             if attempt < config.MAX_RETRIES:
-                logger.warning("Request failed (attempt %d/%d): %s — retrying in %.0fs",
-                               attempt + 1, config.MAX_RETRIES, exc, delay)
+                logger.debug("Request failed (attempt %d/%d): %s — retrying in %.0fs",
+                             attempt + 1, config.MAX_RETRIES, exc, delay)
                 time.sleep(delay)
                 delay *= 2
             else:
-                logger.error("All retries exhausted for %s", url)
+                logger.debug("All retries exhausted for %s", url)
 
     raise last_exc
 
