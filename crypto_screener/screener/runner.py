@@ -71,19 +71,48 @@ def _direction_color(direction: str) -> str:
     return "bright_green" if direction == "LONG" else "bright_red"
 
 
-def render_table(results: list[ScoreResult]) -> None:
-    """Render the ranked screener table using rich."""
-    surfaced = [r for r in results if r.surfaced]
-    surfaced.sort(key=lambda r: r.confidence, reverse=True)
+def _gate_str(r: ScoreResult) -> str:
+    """Compact gate status: green label = passed, red = failed."""
+    parts = []
+    parts.append("[green]SCORE[/green]" if r.passes_threshold else "[red]SCORE[/red]")
+    parts.append("[green]CAT[/green]" if r.passes_category_gate else "[red]CAT[/red]")
+    parts.append("[green]VOL[/green]" if r.passes_volume_gate else "[red]VOL[/red]")
+    return " ".join(parts)
 
-    if not surfaced:
-        console.print("\n[yellow]No setups crossed the confidence threshold.[/yellow]")
-        console.print(f"[dim]Threshold: {config.COMPOSITE_THRESHOLD} | "
-                      f"Min categories: {config.MIN_SIGNAL_CATEGORIES}[/dim]")
+
+def render_table(results: list[ScoreResult], show_all: bool = False) -> None:
+    """
+    Render the ranked screener table using rich.
+
+    show_all=False (default): only surface setups that passed all 3 gates.
+    show_all=True:            show every scored setup with a GATES column
+                              indicating which gates passed (green) or failed (red).
+                              Rows that failed any gate are dimmed.
+    """
+    if show_all:
+        rows = [r for r in results if r.signals]
+        rows.sort(key=lambda r: r.confidence, reverse=True)
+        title = f"{config.RICH_TABLE_TITLE} — ALL SIGNALS"
+    else:
+        rows = [r for r in results if r.surfaced]
+        rows.sort(key=lambda r: r.confidence, reverse=True)
+        title = config.RICH_TABLE_TITLE
+
+    if not rows:
+        if show_all:
+            console.print("\n[yellow]No signals fired at all.[/yellow]")
+            console.print("[dim]Try --symbols 50 or adding more timeframes.[/dim]")
+        else:
+            console.print("\n[yellow]No setups crossed the confidence threshold.[/yellow]")
+            console.print(
+                f"[dim]Threshold: {config.COMPOSITE_THRESHOLD} | "
+                f"Min categories: {config.MIN_SIGNAL_CATEGORIES} | "
+                f"Try --show-all to see everything scored.[/dim]"
+            )
         return
 
     table = Table(
-        title=config.RICH_TABLE_TITLE,
+        title=title,
         box=box.SIMPLE_HEAVY,
         show_header=True,
         header_style="bold cyan",
@@ -96,30 +125,55 @@ def render_table(results: list[ScoreResult]) -> None:
     table.add_column("DIR", justify="center")
     table.add_column("SCORE", justify="right")
     table.add_column("CONF", justify="right")
+    if show_all:
+        table.add_column("GATES", justify="center")
     table.add_column("SIGNALS FIRED", style="dim")
 
-    for r in surfaced:
+    for r in rows:
         dir_color = _direction_color(r.direction)
         score_fmt = f"{r.composite_score:+.2f}"
         conf_fmt = f"{r.confidence:.2f}"
         signals_str = ", ".join(r.signals) if r.signals else "-"
+        row_style = "" if r.surfaced else "dim"
 
-        table.add_row(
-            r.symbol,
-            r.timeframe,
-            f"[{dir_color}]{r.direction}[/{dir_color}]",
-            f"[bold]{score_fmt}[/bold]",
-            conf_fmt,
-            signals_str,
-        )
+        if show_all:
+            table.add_row(
+                r.symbol,
+                r.timeframe,
+                f"[{dir_color}]{r.direction}[/{dir_color}]",
+                f"[bold]{score_fmt}[/bold]",
+                conf_fmt,
+                _gate_str(r),
+                signals_str,
+                style=row_style,
+            )
+        else:
+            table.add_row(
+                r.symbol,
+                r.timeframe,
+                f"[{dir_color}]{r.direction}[/{dir_color}]",
+                f"[bold]{score_fmt}[/bold]",
+                conf_fmt,
+                signals_str,
+            )
 
     console.print()
     console.print(table)
-    console.print(
-        f"[dim]Showing {len(surfaced)} setup(s) | "
-        f"Threshold ≥ {config.COMPOSITE_THRESHOLD} | "
-        f"Ranked by confidence DESC[/dim]\n"
-    )
+
+    passed = sum(1 for r in rows if r.surfaced)
+    if show_all:
+        console.print(
+            f"[dim]{len(rows)} scored setups | "
+            f"{passed} passed all gates (bright rows) | "
+            f"Threshold ≥ {config.COMPOSITE_THRESHOLD} | "
+            f"Ranked by confidence DESC[/dim]\n"
+        )
+    else:
+        console.print(
+            f"[dim]{passed} setup(s) passed all gates | "
+            f"Threshold ≥ {config.COMPOSITE_THRESHOLD} | "
+            f"Use --show-all to see full scored universe[/dim]\n"
+        )
 
 
 # ── Main scan loop ────────────────────────────────────────────────────────────
@@ -128,10 +182,13 @@ def run_scan(
     n_symbols: int = config.TOP_N_SYMBOLS,
     timeframes: list[str] | None = None,
     threshold: float = config.COMPOSITE_THRESHOLD,
+    show_all: bool = False,
 ) -> list[ScoreResult]:
     """
     Fetch top symbols, scan all timeframes in parallel, return all results.
-    Surfaces only those passing all gates.
+
+    show_all=True bypasses gate filtering in the output — every setup that
+    fired at least one signal is shown, with GATES column for diagnostics.
     """
     if timeframes is None:
         timeframes = config.TIMEFRAMES
@@ -148,7 +205,6 @@ def run_scan(
 
     all_results: list[ScoreResult] = []
 
-    # ThreadPoolExecutor for I/O-bound parallel fetches
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(
@@ -174,9 +230,8 @@ def run_scan(
                 console.print(f"[dim]  {completed}/{total_jobs} scanned...[/dim]",
                               end="\r")
 
-    console.print()  # newline after progress
-
-    render_table(all_results)
+    console.print()
+    render_table(all_results, show_all=show_all)
     return all_results
 
 
@@ -193,6 +248,9 @@ def main() -> None:
     parser.add_argument("--tf", nargs="+", default=config.TIMEFRAMES,
                         choices=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"],
                         help=f"Timeframes to scan (default: {' '.join(config.TIMEFRAMES)})")
+    parser.add_argument("--show-all", action="store_true",
+                        help="Show all scored setups regardless of gate filtering "
+                             "(useful for validating signal generation)")
 
     args = parser.parse_args()
 
@@ -201,6 +259,7 @@ def main() -> None:
             n_symbols=args.symbols,
             timeframes=args.tf,
             threshold=args.threshold,
+            show_all=args.show_all,
         )
     except KeyboardInterrupt:
         console.print("\n[yellow]Scan interrupted.[/yellow]")

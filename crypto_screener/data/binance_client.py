@@ -100,6 +100,24 @@ def get_top_symbols(n: int = config.TOP_N_SYMBOLS) -> list[str]:
     return symbols
 
 
+_BINANCE_MAX_LIMIT = 1000  # Binance hard cap per klines request
+
+
+def _parse_raw_klines(raw: list[list]) -> pd.DataFrame:
+    """Convert raw Binance kline list to a clean OHLCV DataFrame."""
+    df = pd.DataFrame(raw, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trades",
+        "taker_buy_base", "taker_buy_quote", "ignore",
+    ])
+    df = df[["open_time", "open", "high", "low", "close", "volume"]].copy()
+    df["open_time"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
+    df = df.rename(columns={"open_time": "timestamp"})
+    df = df.set_index("timestamp")
+    df = df.astype(float)
+    return df
+
+
 def get_ohlcv(
     symbol: str,
     interval: str = config.DEFAULT_TIMEFRAME,
@@ -111,6 +129,7 @@ def get_ohlcv(
     Returns a DataFrame indexed by UTC datetime with columns:
         open, high, low, close, volume  (all float64)
 
+    Automatically paginates for limit > 1000 (Binance hard cap per request).
     Uses /api/v3/klines — no auth required.
     """
     cache_key = f"ohlcv_{symbol}_{interval}_{limit}"
@@ -118,29 +137,55 @@ def get_ohlcv(
     if cached is not None:
         return cached  # type: ignore[return-value]
 
-    raw: list[list] = _get(  # type: ignore[assignment]
-        "/api/v3/klines",
-        params={"symbol": symbol, "interval": interval, "limit": limit},
-    )
+    if limit <= _BINANCE_MAX_LIMIT:
+        # Single request — fast path
+        raw: list[list] = _get(  # type: ignore[assignment]
+            "/api/v3/klines",
+            params={"symbol": symbol, "interval": interval, "limit": limit},
+        )
+        if not raw:
+            raise ValueError(f"Empty kline response for {symbol}/{interval}")
+        df = _parse_raw_klines(raw)
+    else:
+        # Paginate backwards: fetch 1000 at a time using endTime
+        frames: list[pd.DataFrame] = []
+        remaining = limit
+        end_time_ms: int | None = None  # None = most recent candle
 
-    if not raw:
-        raise ValueError(f"Empty kline response for {symbol}/{interval}")
+        while remaining > 0:
+            batch_size = min(remaining, _BINANCE_MAX_LIMIT)
+            params: dict = {"symbol": symbol, "interval": interval, "limit": batch_size}
+            if end_time_ms is not None:
+                params["endTime"] = end_time_ms
 
-    df = pd.DataFrame(raw, columns=[
-        "open_time", "open", "high", "low", "close", "volume",
-        "close_time", "quote_volume", "trades",
-        "taker_buy_base", "taker_buy_quote", "ignore",
-    ])
+            raw = _get("/api/v3/klines", params=params)  # type: ignore[assignment]
+            if not raw:
+                break
 
-    # Keep only what we need
-    df = df[["open_time", "open", "high", "low", "close", "volume"]].copy()
-    df["open_time"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
-    df = df.rename(columns={"open_time": "timestamp"})
-    df = df.set_index("timestamp")
-    df = df.astype(float)
-    df = df.sort_index()  # ensure chronological order
+            batch_df = _parse_raw_klines(raw)
+            frames.append(batch_df)
+            remaining -= len(batch_df)
 
+            # Walk backwards: next request ends just before the earliest candle
+            earliest_ms = int(batch_df.index.min().timestamp() * 1000)
+            if end_time_ms is not None and earliest_ms >= end_time_ms:
+                break  # no more history available
+            end_time_ms = earliest_ms - 1
+
+            if len(batch_df) < batch_size:
+                break  # reached the beginning of available history
+
+            time.sleep(0.1)  # gentle rate limit between pagination requests
+
+        if not frames:
+            raise ValueError(f"Empty kline response for {symbol}/{interval}")
+
+        df = pd.concat(frames)
+        df = df[~df.index.duplicated(keep="first")]
+
+    df = df.sort_index()
     _cache_set(cache_key, df)
+    logger.debug("Fetched %d candles for %s/%s", len(df), symbol, interval)
     return df
 
 
