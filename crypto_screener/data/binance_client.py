@@ -26,7 +26,7 @@ from crypto_screener import config
 logger = logging.getLogger(__name__)
 
 # ── Persistent HTTP session with connection pooling ───────────────────────────
-# Reuses TCP connections across all requests — critical for 200-symbol scans.
+# Reuses TCP connections across all requests — critical for 100-symbol scans.
 # urllib3 handles the connection pool; we do our own retry logic on top.
 _session = requests.Session()
 _adapter = HTTPAdapter(
@@ -88,22 +88,50 @@ def _get(path: str, params: dict | None = None) -> dict | list:
     raise last_exc
 
 
+# ── Shared ticker data (avoids double-fetch of /api/v3/ticker/24hr) ───────────
+
+def _get_all_tickers() -> list[dict]:
+    """
+    Fetch /api/v3/ticker/24hr once and cache under a stable short key.
+
+    Both get_top_symbols() and get_24h_volumes() share this result.
+    This avoids two separate weight-40 requests (each call to ticker/24hr
+    costs Binance weight 40) — a significant saving against the 1200/min limit.
+    """
+    cache_key = "tickers_all"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    data: list[dict] = _get("/api/v3/ticker/24hr")  # type: ignore[assignment]
+    _cache_set(cache_key, data)
+    return data
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def get_top_symbols(n: int = config.TOP_N_SYMBOLS) -> list[str]:
     """
     Return top-N USDT symbols ranked by 24h quote volume.
-    Uses /api/v3/ticker/24hr — no auth required.
+
+    Applies two liquidity filters:
+    1. Absolute floor: MIN_VOLUME_USD ($20M by default) — hard minimum regardless
+       of universe rank. Eliminates micro-caps with manipulable volume.
+    2. Relative rank: top-N after the absolute floor.
+
+    Uses /api/v3/ticker/24hr — no auth required (shared via _get_all_tickers).
     """
     cache_key = f"top_symbols_{n}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached  # type: ignore[return-value]
 
-    data: list[dict] = _get("/api/v3/ticker/24hr")  # type: ignore[assignment]
+    data = _get_all_tickers()
 
     quote = config.QUOTE_ASSET
     excluded = config.EXCLUDED_BASE_ASSETS
+    min_vol = config.MIN_VOLUME_USD
+
     usdt_pairs = [
         d for d in data
         if d["symbol"].endswith(quote)
@@ -111,13 +139,17 @@ def get_top_symbols(n: int = config.TOP_N_SYMBOLS) -> list[str]:
         and not d["symbol"].endswith(f"UP{quote}")
         and d.get("status", "TRADING") == "TRADING"
         and d["symbol"][: -len(quote)] not in excluded
+        and float(d["quoteVolume"]) >= min_vol  # absolute liquidity floor
     ]
 
     ranked = sorted(usdt_pairs, key=lambda d: float(d["quoteVolume"]), reverse=True)
     symbols = [d["symbol"] for d in ranked[:n]]
 
     _cache_set(cache_key, symbols)
-    logger.info("Top %d symbols fetched: %s … %s", n, symbols[0], symbols[-1])
+    logger.info(
+        "Top %d symbols fetched (≥$%.0fM 24h vol): %s … %s",
+        len(symbols), min_vol / 1e6, symbols[0] if symbols else "?", symbols[-1] if symbols else "?"
+    )
     return symbols
 
 
@@ -152,6 +184,9 @@ def get_ohlcv(
 
     Automatically paginates for limit > 1000 (Binance hard cap per request).
     Uses /api/v3/klines — no auth required.
+
+    Raises ValueError if fewer than config.MIN_CANDLES candles are returned —
+    this guards all indicator computations against sparse data on new listings.
     """
     cache_key = f"ohlcv_{symbol}_{interval}_{limit}"
     cached = _cache_get(cache_key)
@@ -205,6 +240,14 @@ def get_ohlcv(
         df = df[~df.index.duplicated(keep="first")]
 
     df = df.sort_index()
+
+    # Guard: reject symbols with insufficient history for EMA-200 warmup.
+    if len(df) < config.MIN_CANDLES:
+        raise ValueError(
+            f"Insufficient data for {symbol}/{interval}: "
+            f"{len(df)} candles returned, need ≥{config.MIN_CANDLES}"
+        )
+
     _cache_set(cache_key, df)
     logger.debug("Fetched %d candles for %s/%s", len(df), symbol, interval)
     return df
@@ -214,15 +257,9 @@ def get_24h_volumes(symbols: list[str]) -> dict[str, float]:
     """
     Return a {symbol: quote_volume} mapping for the given symbols.
     Used by the scorer to gate illiquid setups.
+
+    Reuses the cached ticker data from _get_all_tickers() — no extra API call.
     """
-    cache_key = f"volumes_{'_'.join(sorted(symbols))}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached  # type: ignore[return-value]
-
-    data: list[dict] = _get("/api/v3/ticker/24hr")  # type: ignore[assignment]
+    data = _get_all_tickers()
     vol_map = {d["symbol"]: float(d["quoteVolume"]) for d in data}
-    result = {s: vol_map.get(s, 0.0) for s in symbols}
-
-    _cache_set(cache_key, result)
-    return result
+    return {s: vol_map.get(s, 0.0) for s in symbols}

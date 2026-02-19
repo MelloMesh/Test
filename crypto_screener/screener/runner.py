@@ -28,6 +28,7 @@ from crypto_screener.data.binance_client import (
 from crypto_screener.signals.rsi import get_rsi_signals
 from crypto_screener.signals.bollinger import get_bb_signals
 from crypto_screener.signals.volume import get_volume_signals
+from crypto_screener.signals.trend import get_trend_context
 from crypto_screener.screener.scorer import score_setup, ScoreResult
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
@@ -45,7 +46,7 @@ def _scan_one(
     symbol_volume: float,
     threshold: float,
 ) -> ScoreResult | None:
-    """Fetch data, compute signals, and score a single symbol/timeframe pair."""
+    """Fetch data, compute signals, score, and apply all gates for one symbol/timeframe."""
     try:
         df = get_ohlcv(symbol, interval=timeframe, limit=config.KLINE_LIMIT)
     except Exception as exc:
@@ -55,6 +56,7 @@ def _scan_one(
     rsi_sigs = get_rsi_signals(df)
     bb_sigs = get_bb_signals(df)
     vol_sigs = get_volume_signals(df)
+    trend_ctx = get_trend_context(df)
 
     result = score_setup(
         symbol=symbol,
@@ -64,6 +66,7 @@ def _scan_one(
         vol_signals=vol_sigs,
         universe_volumes=universe_volumes,
         symbol_volume=symbol_volume,
+        trend_context=trend_ctx,
         threshold=threshold,
     )
     return result
@@ -156,6 +159,22 @@ def _group_results(results: list[ScoreResult]) -> list[dict]:
                     seen.add(sig)
                     combined.append(sig)
 
+        # Collect gate failure reasons for display in show-all mode
+        gate_failures: list[str] = []
+        if not any(r.passes_threshold for r in group):
+            gate_failures.append("score")
+        if not any(r.passes_category_gate for r in group):
+            gate_failures.append("cat")
+        if not any(r.passes_volume_gate for r in group):
+            gate_failures.append("vol")
+        if not any(r.passes_trend_gate for r in group):
+            # Show which direction the EMA trend is blocking
+            trend_dir = group[0].ema_trend
+            gate_failures.append(f"trend({trend_dir}↔{direction[0]})")
+
+        # Aggregate trend info (use the result with highest score)
+        best = max(group, key=lambda r: abs(r.composite_score))
+
         rows.append({
             "symbol": symbol,
             "direction": direction,
@@ -163,6 +182,9 @@ def _group_results(results: list[ScoreResult]) -> list[dict]:
             "max_score": max_score,
             "combined_signals": combined,
             "surfaced": surfaced,
+            "gate_failures": gate_failures,
+            "ema_trend": best.ema_trend,
+            "adx": best.adx,
         })
 
     rows.sort(key=lambda r: (len(r["tfs"]), r["max_score"]), reverse=True)
@@ -233,13 +255,30 @@ def render_table(results: list[ScoreResult], show_all: bool = False) -> None:
     table.add_column("CONF",     justify="center", no_wrap=True)
     table.add_column("TRADE",    justify="center")
     table.add_column("STRENGTH", justify="left")
+    table.add_column("TREND",    justify="center", no_wrap=True)
     table.add_column("WHY",      style="dim")
 
     for row in grouped:
         is_long = row["direction"] == "LONG"
         trade_markup = "[bright_green]▲ BUY[/bright_green]" if is_long else "[bright_red]▼ SELL[/bright_red]"
         stars, _ = _strength_stars(row["max_score"])
+
+        # Trend column: EMA direction + ADX strength
+        ema = row.get("ema_trend", "NEUTRAL")
+        adx_val = row.get("adx", 0.0)
+        if ema == "BULL":
+            trend_markup = f"[green]↑EMA[/green] [dim]{adx_val:.0f}[/dim]"
+        elif ema == "BEAR":
+            trend_markup = f"[red]↓EMA[/red] [dim]{adx_val:.0f}[/dim]"
+        else:
+            trend_markup = f"[dim]–EMA {adx_val:.0f}[/dim]"
+
+        # WHY column: signals + gate failures for non-surfaced rows
         why = _humanize_signals(row["combined_signals"])
+        gate_failures = row.get("gate_failures", [])
+        if gate_failures and show_all:
+            why += f"  [red dim][blocked: {', '.join(gate_failures)}][/red dim]"
+
         row_style = "" if row["surfaced"] else "dim"
 
         table.add_row(
@@ -248,6 +287,7 @@ def render_table(results: list[ScoreResult], show_all: bool = False) -> None:
             _conf_markup(row["tfs"]),
             trade_markup,
             stars,
+            trend_markup,
             why,
             style=row_style,
         )

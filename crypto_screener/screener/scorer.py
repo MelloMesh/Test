@@ -15,7 +15,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from crypto_screener import config
+from crypto_screener.signals.trend import TrendContext
 
 # ── Category membership ───────────────────────────────────────────────────────
 _SIGNAL_CATEGORIES: dict[str, str] = {
@@ -53,19 +56,36 @@ class ScoreResult:
     passes_threshold: bool
     passes_category_gate: bool
     passes_volume_gate: bool
+    passes_trend_gate: bool      # True if signal direction aligns with EMA-200 trend (or market is ranging)
     reasoning: str               # human-readable summary
+    ema_trend: str = "NEUTRAL"   # "BULL", "BEAR", or "NEUTRAL" — from trend gate
+    adx: float = 0.0             # ADX value — strength of current trend
 
     @property
     def surfaced(self) -> bool:
         """A setup is surfaced only when all gates pass."""
-        return self.passes_threshold and self.passes_category_gate and self.passes_volume_gate
+        return (
+            self.passes_threshold
+            and self.passes_category_gate
+            and self.passes_volume_gate
+            and self.passes_trend_gate
+        )
 
 
-def _compute_reasoning(signals: list[str], score: float, confidence: float, direction: str) -> str:
+def _compute_reasoning(
+    signals: list[str],
+    score: float,
+    confidence: float,
+    direction: str,
+    trend_ctx: TrendContext | None,
+) -> str:
     if not signals:
         return "No signals fired"
     fired = ", ".join(signals)
-    return f"{direction} | score={score:.2f} conf={confidence:.2f} | {fired}"
+    trend_str = ""
+    if trend_ctx is not None:
+        trend_str = f" | ema={trend_ctx.ema_trend} adx={trend_ctx.adx:.1f}"
+    return f"{direction} | score={score:.2f} conf={confidence:.2f}{trend_str} | {fired}"
 
 
 def score_setup(
@@ -76,6 +96,7 @@ def score_setup(
     vol_signals: list[str],
     universe_volumes: list[float] | None = None,
     symbol_volume: float | None = None,
+    trend_context: TrendContext | None = None,
     threshold: float = config.COMPOSITE_THRESHOLD,
     min_categories: int = config.MIN_SIGNAL_CATEGORIES,
 ) -> ScoreResult:
@@ -86,6 +107,7 @@ def score_setup(
     1. |composite_score| >= threshold
     2. Signals came from >= min_categories distinct categories
     3. Symbol 24h volume is above 20th percentile of universe (if provided)
+    4. Signal direction aligns with EMA-200 trend, or market is ranging (ADX ≤ 20)
     """
     all_signals = rsi_signals + bb_signals + vol_signals
 
@@ -109,11 +131,31 @@ def score_setup(
     # ── Gate 3: volume liquidity ──────────────────────────────────────────────
     passes_volume_gate = True
     if universe_volumes and symbol_volume is not None and len(universe_volumes) >= 5:
-        import numpy as np
         threshold_vol = float(np.percentile(universe_volumes, config.VOL_ILLIQUID_PERCENTILE))
         passes_volume_gate = symbol_volume >= threshold_vol
 
-    reasoning = _compute_reasoning(all_signals, composite_score, confidence, direction)
+    # ── Gate 4: trend alignment ───────────────────────────────────────────────
+    # In trending markets (ADX > threshold), block setups that fight the
+    # structural trend defined by EMA-200. This eliminates the most common
+    # false positives: "oversold" signals in sustained downtrends (falling knives)
+    # and "overbought" signals in sustained uptrends (shorting rockets).
+    #
+    # In ranging markets (ADX ≤ threshold), mean reversion in either direction
+    # is statistically valid — pass regardless of EMA position.
+    passes_trend_gate = True
+    if config.REQUIRE_TREND_ALIGNMENT and trend_context is not None:
+        ema_trend = trend_context.ema_trend
+        is_trending = trend_context.is_trending
+        if is_trending and ema_trend != "NEUTRAL":
+            if direction == "LONG" and ema_trend == "BEAR":
+                passes_trend_gate = False  # don't buy in structural downtrend
+            elif direction == "SHORT" and ema_trend == "BULL":
+                passes_trend_gate = False  # don't short in structural uptrend
+
+    reasoning = _compute_reasoning(all_signals, composite_score, confidence, direction, trend_context)
+
+    ema_trend = trend_context.ema_trend if trend_context is not None else "NEUTRAL"
+    adx_val = trend_context.adx if trend_context is not None else 0.0
 
     return ScoreResult(
         symbol=symbol,
@@ -125,5 +167,8 @@ def score_setup(
         passes_threshold=passes_threshold,
         passes_category_gate=passes_category_gate,
         passes_volume_gate=passes_volume_gate,
+        passes_trend_gate=passes_trend_gate,
         reasoning=reasoning,
+        ema_trend=ema_trend,
+        adx=adx_val,
     )
