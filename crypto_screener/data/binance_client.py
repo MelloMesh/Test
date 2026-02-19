@@ -41,6 +41,11 @@ def _cache_set(key: str, val: object) -> None:
     _cache[key] = (time.time(), val)
 
 
+def clear_cache() -> None:
+    """Evict all cached entries. Call at the start of each watch-mode scan cycle."""
+    _cache.clear()
+
+
 # ── HTTP helper ───────────────────────────────────────────────────────────────
 
 def _get(path: str, params: dict | None = None) -> dict | list:

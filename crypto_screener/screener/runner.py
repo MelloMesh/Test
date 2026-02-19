@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from rich.console import Console
@@ -20,13 +21,15 @@ from rich.table import Table
 from rich import box
 
 from crypto_screener import config
-from crypto_screener.data.binance_client import get_top_symbols, get_ohlcv, get_24h_volumes
+from crypto_screener.data.binance_client import (
+    get_top_symbols, get_ohlcv, get_24h_volumes, clear_cache,
+)
 from crypto_screener.signals.rsi import get_rsi_signals
 from crypto_screener.signals.bollinger import get_bb_signals
 from crypto_screener.signals.volume import get_volume_signals
 from crypto_screener.screener.scorer import score_setup, ScoreResult
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 console = Console()
@@ -227,7 +230,7 @@ def run_scan(
 
     all_results: list[ScoreResult] = []
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
         futures = {
             executor.submit(
                 _scan_one,
@@ -257,6 +260,54 @@ def run_scan(
     return all_results
 
 
+# ── Watch mode ────────────────────────────────────────────────────────────────
+
+def _countdown(seconds: int) -> None:
+    """Print a live countdown, overwriting the same line."""
+    for remaining in range(seconds, 0, -1):
+        console.print(
+            f"[dim]  Next scan in {remaining:>3}s — Press Ctrl+C to stop[/dim]",
+            end="\r",
+        )
+        time.sleep(1)
+    console.print(" " * 60, end="\r")  # clear the line
+
+
+def watch_loop(
+    n_symbols: int,
+    timeframes: list[str],
+    threshold: float,
+    show_all: bool,
+    interval: int,
+) -> None:
+    """
+    Run continuous scan cycles, clearing the screen between each cycle.
+    Clears the in-memory cache before each cycle so data is always fresh.
+    """
+    scan_number = 0
+
+    while True:
+        scan_number += 1
+        clear_cache()  # force fresh data every cycle
+        console.clear()
+
+        import datetime
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        console.rule(
+            f"[bold cyan]LIVE SCREENER[/bold cyan]  "
+            f"[dim]Scan #{scan_number} · {n_symbols} symbols · {ts}[/dim]"
+        )
+
+        run_scan(
+            n_symbols=n_symbols,
+            timeframes=timeframes,
+            threshold=threshold,
+            show_all=show_all,
+        )
+
+        _countdown(interval)
+
+
 # ── CLI entry point ──────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -271,20 +322,33 @@ def main() -> None:
                         choices=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"],
                         help=f"Timeframes to scan (default: {' '.join(config.TIMEFRAMES)})")
     parser.add_argument("--show-all", action="store_true",
-                        help="Show all scored setups regardless of gate filtering "
-                             "(useful for validating signal generation)")
+                        help="Show all scored setups scoring ≥ 1.5 (developing watchlist)")
+    parser.add_argument("--watch", action="store_true",
+                        help="Run continuously, refreshing every --interval seconds")
+    parser.add_argument("--interval", type=int, default=config.WATCH_INTERVAL_SECONDS,
+                        help=f"Seconds between scan cycles in watch mode "
+                             f"(default: {config.WATCH_INTERVAL_SECONDS})")
 
     args = parser.parse_args()
 
     try:
-        run_scan(
-            n_symbols=args.symbols,
-            timeframes=args.tf,
-            threshold=args.threshold,
-            show_all=args.show_all,
-        )
+        if args.watch:
+            watch_loop(
+                n_symbols=args.symbols,
+                timeframes=args.tf,
+                threshold=args.threshold,
+                show_all=args.show_all,
+                interval=args.interval,
+            )
+        else:
+            run_scan(
+                n_symbols=args.symbols,
+                timeframes=args.tf,
+                threshold=args.threshold,
+                show_all=args.show_all,
+            )
     except KeyboardInterrupt:
-        console.print("\n[yellow]Scan interrupted.[/yellow]")
+        console.print("\n[yellow]Screener stopped.[/yellow]")
         sys.exit(0)
 
 

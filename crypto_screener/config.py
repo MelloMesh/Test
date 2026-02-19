@@ -4,7 +4,7 @@ Single source of truth for all thresholds, weights, and parameters.
 """
 
 # ── Universe ──────────────────────────────────────────────────────────────────
-TOP_N_SYMBOLS: int = 30          # number of top-volume USDT pairs to scan
+TOP_N_SYMBOLS: int = 200         # number of top-volume USDT pairs to scan
 QUOTE_ASSET: str = "USDT"        # only pairs quoted in this asset
 
 # Base assets that are stablecoins or pegged — skip entirely (not tradeable setups)
@@ -21,11 +21,17 @@ DEFAULT_TIMEFRAME: str = "1h"
 KLINE_LIMIT: int = 300           # candles fetched per timeframe (≥ 120 for BB squeeze percentile)
 BACKTEST_KLINE_LIMIT: int = 1000 # ~6 months on 1h; ~10 months on 4h
 
+# ── Concurrency ───────────────────────────────────────────────────────────────
+MAX_WORKERS: int = 20            # parallel fetch threads (safe for 200 symbols)
+
+# ── Watch mode ────────────────────────────────────────────────────────────────
+WATCH_INTERVAL_SECONDS: int = 60  # seconds between scan cycles in --watch mode
+
 # ── Binance REST ──────────────────────────────────────────────────────────────
 BINANCE_BASE_URL: str = "https://api.binance.com"
 REQUEST_TIMEOUT: int = 10        # seconds
 MAX_RETRIES: int = 4             # exponential backoff retries
-CACHE_TTL_SECONDS: int = 60      # in-memory cache lifetime
+CACHE_TTL_SECONDS: int = 55      # slightly under WATCH_INTERVAL so cache expires between cycles
 
 # ── RSI Parameters ───────────────────────────────────────────────────────────
 RSI_PERIOD: int = 14
