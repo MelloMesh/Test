@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime
 import logging
 import sys
 import time
@@ -256,7 +257,7 @@ def render_table(results: list[ScoreResult], show_all: bool = False) -> None:
 
     multi_tf = sum(1 for r in grouped if len(r["tfs"]) >= 2)
     confirmed = sum(1 for r in grouped if r["surfaced"])
-    ts = __import__("datetime").datetime.utcnow().strftime("%H:%M UTC")
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC")
 
     console.print(
         f"[dim]{len(grouped)} setups | "
@@ -375,8 +376,7 @@ def watch_loop(
         clear_cache()  # force fresh data every cycle
         console.clear()
 
-        import datetime
-        ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         console.rule(
             f"[bold cyan]LIVE SCREENER[/bold cyan]  "
             f"[dim]Scan #{scan_number} · {n_symbols} symbols · {ts}[/dim]"
