@@ -121,26 +121,95 @@ def _strength_stars(score: float) -> tuple[str, str]:
         return "[dim]★☆☆☆☆[/dim]", "WEAK"
 
 
+_TF_ORDER: dict[str, int] = {
+    "1m": 0, "3m": 1, "5m": 2, "15m": 3, "30m": 4,
+    "1h": 5, "2h": 6, "4h": 7, "6h": 8, "12h": 9, "1d": 10,
+}
+
+
+def _group_results(results: list[ScoreResult]) -> list[dict]:
+    """
+    Merge per-TF rows into per-symbol rows grouped by (symbol, direction).
+
+    Timeframes that agree on direction are collapsed into one row.
+    Conflicting-direction timeframes for the same symbol stay as separate rows.
+    Returns rows sorted by (tf_count DESC, max_abs_score DESC).
+    """
+    from collections import defaultdict
+    groups: dict[tuple[str, str], list[ScoreResult]] = defaultdict(list)
+    for r in results:
+        groups[(r.symbol, r.direction)].append(r)
+
+    rows = []
+    for (symbol, direction), group in groups.items():
+        group.sort(key=lambda r: _TF_ORDER.get(r.timeframe, 99))
+        max_score = max(abs(r.composite_score) for r in group)
+        surfaced = any(r.surfaced for r in group)
+
+        # Deduplicate signals preserving order by first appearance
+        seen: set[str] = set()
+        combined: list[str] = []
+        for r in group:
+            for sig in r.signals:
+                if sig not in seen:
+                    seen.add(sig)
+                    combined.append(sig)
+
+        rows.append({
+            "symbol": symbol,
+            "direction": direction,
+            "tfs": [r.timeframe for r in group],
+            "max_score": max_score,
+            "combined_signals": combined,
+            "surfaced": surfaced,
+        })
+
+    rows.sort(key=lambda r: (len(r["tfs"]), r["max_score"]), reverse=True)
+    return rows
+
+
+def _tf_markup(tfs: list[str]) -> str:
+    """Color-coded timeframe string based on confluence count."""
+    joined = "·".join(tfs)
+    if len(tfs) >= 3:
+        return f"[bold yellow]{joined}[/bold yellow]"
+    elif len(tfs) == 2:
+        return f"[cyan]{joined}[/cyan]"
+    return f"[dim]{joined}[/dim]"
+
+
+def _conf_markup(tfs: list[str]) -> str:
+    """Diamond confluence indicator: ◆◆◆ = all TFs aligned."""
+    n = len(tfs)
+    filled = "◆" * n
+    empty = "◇" * (3 - n)
+    if n >= 3:
+        return f"[bold yellow]{filled}{empty}[/bold yellow]"
+    elif n == 2:
+        return f"[cyan]{filled}[/cyan][dim]{empty}[/dim]"
+    return f"[dim]{filled}{empty}[/dim]"
+
+
 def render_table(results: list[ScoreResult], show_all: bool = False) -> None:
     """
-    Render the screener table.
+    Render the screener table with per-symbol TF confluence grouping.
 
-    Default mode: only confirmed setups that passed all 3 gates.
-    --show-all:   every setup scoring ≥ 1.5 (filters single-signal noise),
-                  dimmed when gates not fully passed.
+    Default mode: only groups where ≥ 1 TF passed all 3 gates.
+    --show-all:   every group scoring ≥ 1.5 across any TF.
+    Multi-TF rows are sorted first (◆◆◆ before ◆◆ before ◆).
     """
-    MIN_SHOW_ALL_SCORE = 1.5  # hide trivial single-signal noise in --show-all
+    MIN_SHOW_ALL_SCORE = 1.5
 
     if show_all:
-        rows = [r for r in results if abs(r.composite_score) >= MIN_SHOW_ALL_SCORE]
-        rows.sort(key=lambda r: abs(r.composite_score), reverse=True)
+        candidates = [r for r in results if abs(r.composite_score) >= MIN_SHOW_ALL_SCORE]
         title = "Crypto Screener — Watchlist"
     else:
-        rows = [r for r in results if r.surfaced]
-        rows.sort(key=lambda r: abs(r.composite_score), reverse=True)
+        candidates = [r for r in results if r.surfaced]
         title = "Crypto Screener — Trade Setups"
 
-    if not rows:
+    grouped = _group_results(candidates)
+
+    if not grouped:
         if show_all:
             console.print("\n[yellow]No setups scored ≥ 1.5. Try --symbols 50.[/yellow]")
         else:
@@ -159,21 +228,23 @@ def render_table(results: list[ScoreResult], show_all: bool = False) -> None:
     )
 
     table.add_column("SYMBOL",   style="bold white", no_wrap=True)
-    table.add_column("TF",       justify="center", style="white")
+    table.add_column("TF",       justify="center", no_wrap=True)
+    table.add_column("CONF",     justify="center", no_wrap=True)
     table.add_column("TRADE",    justify="center")
     table.add_column("STRENGTH", justify="left")
     table.add_column("WHY",      style="dim")
 
-    for r in rows:
-        is_long = r.direction == "LONG"
+    for row in grouped:
+        is_long = row["direction"] == "LONG"
         trade_markup = "[bright_green]▲ BUY[/bright_green]" if is_long else "[bright_red]▼ SELL[/bright_red]"
-        stars, _ = _strength_stars(r.composite_score)
-        why = _humanize_signals(r.signals)
-        row_style = "" if r.surfaced else "dim"
+        stars, _ = _strength_stars(row["max_score"])
+        why = _humanize_signals(row["combined_signals"])
+        row_style = "" if row["surfaced"] else "dim"
 
         table.add_row(
-            r.symbol,
-            r.timeframe,
+            row["symbol"],
+            _tf_markup(row["tfs"]),
+            _conf_markup(row["tfs"]),
             trade_markup,
             stars,
             why,
@@ -183,22 +254,18 @@ def render_table(results: list[ScoreResult], show_all: bool = False) -> None:
     console.print()
     console.print(table)
 
-    passed = sum(1 for r in rows if r.surfaced)
+    multi_tf = sum(1 for r in grouped if len(r["tfs"]) >= 2)
+    confirmed = sum(1 for r in grouped if r["surfaced"])
     ts = __import__("datetime").datetime.utcnow().strftime("%H:%M UTC")
 
-    if show_all:
-        console.print(
-            f"[dim]{len(rows)} developing setups | "
-            f"{passed} confirmed (full strength, bright rows) | "
-            f"★★★★★ = score ≥ 4.0  ★★★★☆ = ≥ 3.0  ★★★☆☆ = ≥ 2.0 | "
-            f"Scanned at {ts}[/dim]\n"
-        )
-    else:
-        console.print(
-            f"[dim]{passed} confirmed setup(s) | "
-            f"★★★★★ = STRONG  ★★★★☆ = HIGH  ★★★☆☆ = MEDIUM | "
-            f"Scanned at {ts}[/dim]\n"
-        )
+    console.print(
+        f"[dim]{len(grouped)} setups | "
+        f"[bold yellow]◆◆◆[/bold yellow][dim] = all 3 TFs aligned  "
+        f"[cyan]◆◆[/cyan][dim] = 2 TFs  "
+        f"[dim]◆ = 1 TF[/dim]  |  "
+        f"{multi_tf} multi-TF  ·  {confirmed} confirmed  |  "
+        f"Scanned at {ts}[/dim]\n"
+    )
 
 
 # ── Main scan loop ────────────────────────────────────────────────────────────
