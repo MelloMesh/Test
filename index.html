@@ -34,7 +34,7 @@
   --orange: #f59e0b;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-  --row-height: 32px;
+  --row-height: 40px;
 }
 
 html, body {
@@ -349,32 +349,60 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
 /* ── Condensed ── */
 .tf-label { font-size: 9px; color: var(--text-muted); margin-left: 2px; }
 
-/* ── Setup Grade ── */
+/* ── Signal Column ── */
+.signal-cell { text-align: center; }
 .grade-badge {
-  display: inline-block; padding: 1px 6px; border-radius: 3px;
-  font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
   font-family: var(--font-mono); line-height: 18px; white-space: nowrap;
 }
 .grade-A {
-  background: rgba(34,197,94,0.22); color: #4ade80;
-  border: 1px solid rgba(34,197,94,0.35); text-shadow: 0 0 6px rgba(34,197,94,0.3);
+  background: rgba(255,193,7,0.25); color: #ffc107;
+  border: 1px solid rgba(255,193,7,0.4); text-shadow: 0 0 6px rgba(255,193,7,0.2);
 }
 .grade-B {
-  background: rgba(34,197,94,0.10); color: var(--green);
-  border: 1px solid rgba(34,197,94,0.18);
+  background: rgba(100,149,237,0.20); color: #6495ed;
+  border: 1px solid rgba(100,149,237,0.3);
 }
 .grade-C {
-  background: rgba(234,179,8,0.10); color: var(--yellow);
-  border: 1px solid rgba(234,179,8,0.15);
+  background: rgba(150,150,150,0.15); color: #999;
+  border: 1px solid rgba(150,150,150,0.1);
 }
-.grade-D { color: var(--text-secondary); }
-.grade-F { color: var(--text-muted); }
-.grade-dir {
-  font-size: 9px; color: var(--text-secondary); margin-left: 3px; font-weight: 400;
+.grade-D { background: rgba(80,80,80,0.10); color: #666; }
+.grade-F { background: rgba(80,80,80,0.05); color: #555; }
+.signal-dir {
+  font-size: 10px; font-weight: 600; margin-left: 4px;
 }
-.grade-score {
-  font-size: 9px; color: var(--text-muted); margin-left: 3px; font-weight: 400;
+.signal-score {
+  font-size: 10px; color: var(--text-muted); margin-top: 1px;
+  font-family: var(--font-mono);
 }
+.catalyst-text {
+  font-size: 9px; font-style: italic; color: var(--text-muted);
+  margin-top: 1px; line-height: 1.2; max-width: 150px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Starred symbols ── */
+.star-icon {
+  cursor: pointer; opacity: 0.3; transition: opacity 0.2s;
+  margin-right: 6px; font-size: 12px; display: inline;
+}
+.star-icon:hover { opacity: 0.7; }
+.star-icon.starred { opacity: 1; color: #ffc107; }
+.starred-divider td { border-bottom: 2px solid rgba(255,193,7,0.3) !important; }
+
+/* ── Stacked (merged) cells ── */
+.stacked-cell {
+  display: flex; flex-direction: column; gap: 1px; line-height: 1.3;
+}
+.stacked-cell .secondary {
+  font-size: 10px; color: var(--text-muted);
+}
+
+/* ── Row tinting for strong signals ── */
+tr.signal-long-strong { background: rgba(0,200,100,0.03) !important; }
+tr.signal-short-strong { background: rgba(255,60,60,0.03) !important; }
 
 /* ── OI Delta ── */
 .oi-new-long { color: var(--green-bright); font-weight: 600; }
@@ -425,112 +453,6 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
   background: rgba(234,179,8,0.18); border-color: var(--yellow); color: var(--yellow);
 }
 
-/* ── Pre-Trade Checklist Panel ── */
-.checklist-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
-  z-index: 5000; display: none; opacity: 0; transition: opacity 0.2s;
-}
-.checklist-backdrop.open { display: block; opacity: 1; }
-.checklist-panel {
-  position: fixed; top: 0; right: -440px; width: 420px; height: 100vh;
-  background: var(--bg-secondary); border-left: 1px solid var(--border-color);
-  z-index: 5001; transition: right 0.3s ease; overflow-y: auto;
-  box-shadow: -8px 0 32px rgba(0,0,0,0.4); font-family: var(--font-sans);
-}
-.checklist-panel.open { right: 0; }
-.checklist-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px; border-bottom: 1px solid var(--border-color);
-}
-.checklist-title {
-  font-size: 14px; font-weight: 700; color: var(--text-primary);
-  display: flex; align-items: center; gap: 6px;
-}
-.checklist-close {
-  background: none; border: none; color: var(--text-muted); cursor: pointer;
-  font-size: 18px; padding: 4px 8px; border-radius: 4px; transition: all 0.15s;
-}
-.checklist-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
-.checklist-summary { padding: 16px 20px; border-bottom: 1px solid var(--border-color); }
-.checklist-symbol {
-  font-size: 18px; font-weight: 800; color: var(--text-primary);
-  font-family: var(--font-mono); display: flex; align-items: center; gap: 10px;
-}
-.checklist-dir {
-  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 3px;
-}
-.checklist-dir.long { background: rgba(34,197,94,0.15); color: var(--green); }
-.checklist-dir.short { background: rgba(239,68,68,0.15); color: var(--red); }
-.checklist-meta {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;
-}
-.checklist-meta-item {
-  background: var(--bg-primary); border: 1px solid var(--border-color);
-  border-radius: 6px; padding: 8px 12px;
-}
-.checklist-meta-label {
-  font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;
-  color: var(--text-muted); font-weight: 600;
-}
-.checklist-meta-value {
-  font-size: 14px; font-weight: 700; margin-top: 2px; font-family: var(--font-mono);
-}
-.checklist-section-title {
-  font-size: 10px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.5px; color: var(--text-muted); padding: 14px 20px 6px;
-}
-.checklist-items { padding: 0 20px; }
-.checklist-item {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 10px 0; border-bottom: 1px solid var(--border-subtle);
-  cursor: pointer; transition: opacity 0.15s; user-select: none;
-}
-.checklist-item:last-child { border-bottom: none; }
-.checklist-check {
-  width: 18px; height: 18px; border: 2px solid var(--border-color);
-  border-radius: 4px; flex-shrink: 0; margin-top: 1px;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s; font-size: 11px; color: transparent;
-}
-.checklist-item.checked .checklist-check {
-  background: var(--blue); border-color: var(--blue); color: #fff;
-}
-.checklist-item-text { flex: 1; }
-.checklist-item-label { font-size: 12px; color: var(--text-primary); font-weight: 500; }
-.checklist-item.checked .checklist-item-label { text-decoration: line-through; opacity: 0.5; }
-.checklist-item-hint { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
-.checklist-item-auto {
-  font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
-  margin-left: 6px;
-}
-.checklist-item-auto.pass { background: rgba(34,197,94,0.12); color: var(--green); }
-.checklist-item-auto.warn { background: rgba(234,179,8,0.12); color: var(--yellow); }
-.checklist-item-auto.fail { background: rgba(239,68,68,0.12); color: var(--red); }
-.checklist-footer {
-  padding: 16px 20px; border-top: 1px solid var(--border-color); margin-top: 4px;
-}
-.checklist-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.checklist-progress-bar {
-  flex: 1; height: 6px; background: var(--bg-primary); border-radius: 3px; overflow: hidden;
-}
-.checklist-progress-fill {
-  height: 100%; background: var(--blue); border-radius: 3px; transition: width 0.3s;
-}
-.checklist-progress-text {
-  font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;
-}
-.checklist-verdict {
-  padding: 10px; border-radius: 6px; text-align: center;
-  font-size: 12px; font-weight: 600;
-}
-.checklist-verdict.incomplete {
-  background: rgba(234,179,8,0.08); color: var(--yellow);
-  border: 1px solid rgba(234,179,8,0.2);
-}
-.checklist-verdict.complete {
-  background: rgba(34,197,94,0.08); color: var(--green);
-  border: 1px solid rgba(34,197,94,0.2);
-}
 
 /* ── Loading overlay ── */
 .loading-overlay {
@@ -569,6 +491,7 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
   table { font-size: 11px; }
   thead th { padding: 5px 8px; font-size: 9px; }
   tbody td { padding: 0 8px; font-size: 11px; }
+  .catalyst-text { display: none; }
 }
 @media (max-width: 1024px) {
   .header { padding: 8px 12px; gap: 8px; }
@@ -579,6 +502,7 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
   }
   .filter-bar::-webkit-scrollbar { display: none; }
   .brand-sub { display: none; }
+  .stacked-cell .secondary { font-size: 9px; }
 }
 @media (max-width: 768px) {
   :root { --row-height: 26px; }
@@ -590,6 +514,9 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
   tbody td { padding: 0 6px; font-size: 10px; }
   .filter-pill { padding: 3px 7px; font-size: 10px; }
   .status-bar { padding: 3px 10px; gap: 10px; font-size: 10px; }
+  .signal-score { display: none; }
+  .catalyst-text { display: none; }
+  .tf-label { display: none; }
 }
 </style>
 </head>
@@ -619,8 +546,8 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
     </div>
     <div class="header-divider"></div>
     <div class="filter-bar">
+      <button class="filter-pill confluence" data-filter="grade-ab">A/B Grade</button>
       <button class="filter-pill" data-filter="ob-os">OB/OS</button>
-      <button class="filter-pill" data-filter="divergence">Divergence</button>
       <button class="filter-pill" data-filter="squeeze">Squeeze</button>
       <div class="filter-dropdown" id="volFilterDropdown">
         <button class="filter-dropdown-btn" id="volFilterBtn">Vol <span id="volFilterLabel">All</span> <span class="dd-arrow">&#9662;</span></button>
@@ -638,10 +565,11 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
       <div class="filter-dropdown" id="moreFilterDropdown">
         <button class="filter-dropdown-btn" id="moreFilterBtn">More <span class="dd-arrow">&#9662;</span></button>
         <div class="filter-dropdown-menu" id="moreFilterMenu">
-          <button data-filter="rvol">RVol &gt; 2x</button>
+          <button data-filter="divergence">Divergence</button>
           <button data-filter="choch-aligned">CHOCH Aligned</button>
           <button data-filter="oi-buildup">OI Buildup</button>
           <button data-filter="cvd-div">CVD Divergence</button>
+          <button data-filter="rvol">RVol &gt; 2x</button>
         </div>
       </div>
       <button class="filter-clear" id="filterClear">Clear all</button>
@@ -686,22 +614,6 @@ tbody tr:hover td:first-child { background: var(--bg-hover); }
   </div>
 </div>
 
-<!-- Pre-Trade Checklist Panel -->
-<div class="checklist-backdrop" id="checklistBackdrop"></div>
-<div class="checklist-panel" id="checklistPanel">
-  <div class="checklist-header">
-    <div class="checklist-title">Pre-Trade Checklist</div>
-    <button class="checklist-close" id="checklistClose">&times;</button>
-  </div>
-  <div class="checklist-summary" id="checklistSummary"></div>
-  <div class="checklist-section-title">Trend &amp; Structure</div>
-  <div class="checklist-items" id="checklistStructure"></div>
-  <div class="checklist-section-title">Sentiment &amp; Positioning</div>
-  <div class="checklist-items" id="checklistRisk"></div>
-  <div class="checklist-section-title">Flow &amp; Volume</div>
-  <div class="checklist-items" id="checklistExecution"></div>
-  <div class="checklist-footer" id="checklistFooter"></div>
-</div>
 
 <script>
 // ============================================================
@@ -735,34 +647,27 @@ const KLINE_POLL_INTERVAL = 180000;   // 3 min — refresh RSI/divergence/CHOCH/
 const OI_POLL_INTERVAL = 300000;      // 5 min — refresh OI delta, funding velocity, L/S ratio
 const RENDER_THROTTLE_MS = 200;       // batch WS updates into renders
 
-// ── Column definitions ──
+// ── Column definitions (7 merged columns default, extras in picker) ──
 const DEFAULT_COLUMNS = [
-  { key: 'symbol',        label: 'Symbol',      align: 'left',  locked: true },
-  { key: 'price',         label: 'Price',       align: 'right', locked: false },
-  { key: 'change24h',     label: '24H Chg%',    align: 'right', locked: false },
-  { key: 'volume24h',     label: '24H Vol',     align: 'right', locked: false },
-  { key: 'relVolume',     label: 'Rel Vol',     align: 'right', locked: false },
-  { key: 'rsi15m',        label: 'RSI 15m',     align: 'right', locked: false },
-  { key: 'rsi30m',        label: 'RSI 30m',     align: 'right', locked: false },
-  { key: 'rsiHtf',        label: 'RSI HTF',     align: 'right', locked: false },
-
-  { key: 'oiDelta',       label: 'OI Delta',    align: 'right', locked: false },
-  { key: 'rangePosition', label: '24h Range',   align: 'right', locked: false },
-  { key: 'cvd',           label: 'CVD',         align: 'right', locked: false },
-  { key: 'squeeze',       label: 'Squeeze',     align: 'right', locked: false },
-  { key: 'fundVelocity',  label: 'Fund Vel',    align: 'right', locked: false },
-  { key: 'lsRatio',       label: 'L/S Ratio',   align: 'right', locked: false },
-  { key: 'fundingRate',   label: 'Funding',     align: 'right', locked: false },
-  { key: 'openInterest',  label: 'OI',          align: 'right', locked: false },
+  { key: 'symbol',        label: 'Symbol',       align: 'left',   locked: true },
+  { key: 'priceChange',   label: 'Price',        align: 'right',  locked: false },
+  { key: 'signal',        label: 'Signal',       align: 'center', locked: false },
+  { key: 'rsiComposite',  label: 'RSI',          align: 'right',  locked: false },
+  { key: 'oiFunding',     label: 'OI / Funding', align: 'right',  locked: false },
+  { key: 'squeeze',       label: 'Squeeze',      align: 'right',  locked: false },
+  { key: 'volume',        label: 'Volume',       align: 'right',  locked: false },
+  // Hidden extras — available via column picker
+  { key: 'openInterest',  label: 'OI',           align: 'right',  locked: false },
+  { key: 'relVolume',     label: 'Rel Vol',      align: 'right',  locked: false },
 ];
 
 const COLUMN_MAP = {};
 DEFAULT_COLUMNS.forEach(c => { COLUMN_MAP[c.key] = c; });
 
-// Default visible columns — clean scan view. Rest available via column picker.
+// Default visible columns — clean 7-column view
 const DEFAULT_VISIBLE_KEYS = new Set([
-  'symbol', 'price', 'change24h', 'rsi15m', 'rsi30m',
-  'squeeze', 'fundingRate'
+  'symbol', 'priceChange', 'signal', 'rsiComposite',
+  'oiFunding', 'squeeze', 'volume'
 ]);
 
 let columnOrder = DEFAULT_COLUMNS.map(c => c.key);
@@ -813,7 +718,15 @@ function saveColumnPrefs() {
 
 // ── State ──
 let instruments = {};
-let sortLevels = [{ key: 'volume24h', dir: -1 }];
+let sortLevels = [{ key: 'volume', dir: -1 }];
+let starredSymbols = new Set(JSON.parse(localStorage.getItem('mello_starred') || '[]'));
+
+function toggleStar(symbol) {
+  if (starredSymbols.has(symbol)) starredSymbols.delete(symbol);
+  else starredSymbols.add(symbol);
+  localStorage.setItem('mello_starred', JSON.stringify([...starredSymbols]));
+  renderTable();
+}
 let activeFilters = new Set();
 let volumeMinFilter = 0;
 let searchText = '';
@@ -1081,8 +994,8 @@ function computeOIDelta(oiHistory) {
 // P1: OI delta label with relative thresholds
 function getOIDeltaLabel(oiPct, priceChg, change24h) {
   if (oiPct === null) return { label: '\u2014', cls: 'oi-flat', dir: 0 };
-  // Relative threshold: OI change must be at least 50% of price change magnitude, min 0.5%
-  var threshold = Math.max(0.5, Math.abs(change24h || 0) * 0.5);
+  // Relative threshold: OI change must be at least 30% of price change magnitude, min 0.5%
+  var threshold = Math.max(0.5, Math.abs(change24h || 0) * 0.3);
   var oiUp = oiPct > threshold;
   var oiDown = oiPct < -threshold;
   var priceUp = priceChg > 0;
@@ -1490,13 +1403,11 @@ function scoreFlowPillar(d) {
   // 3c. Relative Volume (25% of pillar) — participation confirmation
   var rvolScore = 0;
   if (d.relVolume !== null && d.relVolume !== undefined) {
-    if (d.relVolume >= 3.0) rvolScore = 1.0;
+    if (d.relVolume >= 3.0) rvolScore = 1.0;       // Strong volume (includes 5x+)
     else if (d.relVolume >= 2.0) rvolScore = 0.8;
-    else if (d.relVolume >= 1.5) rvolScore = 0.5;
-    else if (d.relVolume >= 0.8) rvolScore = 0;
-    else rvolScore = -0.5; // Low participation — suspect
-    // Exhaustion warning: RVOL > 5x may indicate climactic move
-    if (d.relVolume >= 5.0) rvolScore = 0.3; // Reduce — could be exhaustion
+    else if (d.relVolume >= 1.2) rvolScore = 0.3;
+    else if (d.relVolume >= 0.8) rvolScore = 0;     // Neutral — normal volume
+    else rvolScore = -0.4;                            // Low participation
   }
   // RVOL is non-directional; it acts as conviction, not direction
   // We keep it as-is (positive = good) rather than multiplying by direction
@@ -1568,8 +1479,8 @@ function computeConfluence(d) {
   var directionHint = trend * 0.50 + flow * 0.30 + sentiment * 0.20;
   var momentum = scoreMomentumPillar(d, directionHint);
 
-  // Step 2: Weighted composite
-  var composite = (0.30 * trend) + (0.25 * momentum) + (0.25 * flow) + (0.20 * sentiment);
+  // Step 2: Weighted composite (Flow/Sentiment weighted higher — futures edge)
+  var composite = (0.25 * trend) + (0.20 * momentum) + (0.30 * flow) + (0.25 * sentiment);
   composite = clamp(composite, -1, 1);
 
   // Step 3: Confluence gate — how many pillars agree with composite direction
@@ -1589,9 +1500,10 @@ function computeConfluence(d) {
 
   var gate;
   if (pillarsAgreeing >= 4) gate = 1.00;
-  else if (pillarsAgreeing === 3) gate = 0.75;
-  else if (pillarsAgreeing === 2) gate = 0.40;
-  else gate = 0; // <2 pillars = no trade
+  else if (pillarsAgreeing === 3) gate = 0.80;
+  else if (pillarsAgreeing === 2) gate = 0.55;
+  else if (pillarsAgreeing === 1) gate = 0.25;
+  else gate = 0;
 
   var gated = composite * gate;
 
@@ -1620,10 +1532,10 @@ function computeConfluence(d) {
   else if (final < -0.24) direction = 'SHORT';
   else direction = 'NEUTRAL';
 
-  if (absScore >= 0.70) { grade = 'A'; cls = 'grade-A'; }
-  else if (absScore >= 0.45) { grade = 'B'; cls = 'grade-B'; }
-  else if (absScore >= 0.25) { grade = 'C'; cls = 'grade-C'; }
-  else if (absScore >= 0.10) { grade = 'D'; cls = 'grade-D'; }
+  if (absScore >= 0.65) { grade = 'A'; cls = 'grade-A'; }
+  else if (absScore >= 0.40) { grade = 'B'; cls = 'grade-B'; }
+  else if (absScore >= 0.20) { grade = 'C'; cls = 'grade-C'; }
+  else if (absScore >= 0.08) { grade = 'D'; cls = 'grade-D'; }
   else { grade = 'F'; cls = 'grade-F'; }
 
   // Edge tags — quick visual flags
@@ -1674,10 +1586,63 @@ function computeConfluence(d) {
     },
     tags: tags,
     sizing: sizing,
+    catalyst: '',  // Filled in by determineCatalyst() after attachment to instrument
     // Backward-compatible fields
     score: score100,
     dir: direction === 'NEUTRAL' ? (final >= 0 ? 'LONG' : 'SHORT') : direction,
   };
+}
+
+// ── Catalyst determination — human-readable driver of the signal ──
+function determineCatalyst(d) {
+  var catalysts = [];
+
+  // Squeeze catalyst (highest priority visual catalyst)
+  if (d.squeezeOn) catalysts.push('Squeeze firing');
+  else if (d.squeezeBuilding) catalysts.push('Squeeze building');
+
+  // OI-driven catalyst
+  if (d.oiDeltaPct !== null && d.oiDeltaPct !== undefined) {
+    var oiAbs = Math.abs(d.oiDeltaPct);
+    if (oiAbs > 5) {
+      var oiLbl = getOIDeltaLabel(d.oiDeltaPct, d.change24h, d.change24h);
+      if (oiLbl.label !== 'FLAT') catalysts.push(oiLbl.label);
+    }
+  }
+
+  // Funding extreme (contrarian signal)
+  var fr = Math.abs(d.fundingRate || 0);
+  if (fr > 0.0003) {
+    var frDir = d.fundingRate > 0 ? 'longs paying' : 'shorts paying';
+    catalysts.push('Funding extreme (' + frDir + ')');
+  }
+
+  // Divergence catalyst
+  var hasDiv = (d.div15m && d.div15m !== 'none') || (d.div30m && d.div30m !== 'none');
+  if (hasDiv) {
+    var divType = d.div15m !== 'none' ? d.div15m : d.div30m;
+    catalysts.push(divType.charAt(0).toUpperCase() + divType.slice(1) + ' divergence');
+  }
+
+  // CVD divergence
+  if (d.cvdDivergence && d.cvdDivergence !== 'none') {
+    catalysts.push('CVD divergence');
+  }
+
+  // Extreme RVOL
+  if ((d.relVolume || 0) >= 5) {
+    catalysts.push('Extreme volume (' + d.relVolume.toFixed(1) + 'x)');
+  }
+
+  // Multi-timeframe CHOCH alignment
+  var ch = getChochSummary(d);
+  if (ch.aligned && ch.count >= 3) {
+    catalysts.push('MTF structure aligned');
+  }
+
+  // Return top 2 catalysts max
+  if (catalysts.length === 0) return 'No clear catalyst';
+  return catalysts.slice(0, 2).join(' + ');
 }
 
 // Backward-compatible wrappers (used by existing code)
@@ -1695,10 +1660,10 @@ function computeSetupGrade(d) {
     cls: c.cls,
     dir: c.dir,
     pillars: {
-      trend:   Math.round(Math.abs(c.pillars.trend) * 30),
-      momentum: Math.round(Math.abs(c.pillars.momentum) * 25),
-      flow: Math.round(Math.abs(c.pillars.flow) * 25),
-      sentiment:  Math.round(Math.abs(c.pillars.sentiment) * 20),
+      trend:   Math.round(Math.abs(c.pillars.trend) * 25),
+      momentum: Math.round(Math.abs(c.pillars.momentum) * 20),
+      flow: Math.round(Math.abs(c.pillars.flow) * 30),
+      sentiment:  Math.round(Math.abs(c.pillars.sentiment) * 25),
     }
   };
 }
@@ -1713,6 +1678,7 @@ function updateSignalFor(symbol) {
   var d = instruments[symbol];
   if (d) {
     d._confluence = computeConfluence(d);
+    d._confluence.catalyst = determineCatalyst(d);
     d._signal = computeSignal(d);
     d._grade = computeSetupGrade(d);
     d._edge = computeEdgeScore(d);
@@ -1720,111 +1686,182 @@ function updateSignalFor(symbol) {
 }
 
 // ============================================================
-// P3: DOM cell builders (XSS hardening — no innerHTML for data)
+// DOM cell builders (XSS hardening — no innerHTML for data)
 // ============================================================
 
-function buildRsiCell(td, val, div) {
-  if (val === null || val === undefined) {
-    td.className = 'rsi-neutral'; td.textContent = '\u2014'; return;
+// ── Symbol cell with star + TradingView link ──
+function buildSymbolCell(td, d) {
+  var star = document.createElement('span');
+  star.className = 'star-icon' + (starredSymbols.has(d.symbol) ? ' starred' : '');
+  star.textContent = starredSymbols.has(d.symbol) ? '\u2605' : '\u2606';
+  star.addEventListener('click', function(e) {
+    e.stopPropagation();
+    toggleStar(d.symbol);
+  });
+  td.appendChild(star);
+  var link = document.createElement('span');
+  link.textContent = d.symbol;
+  td.appendChild(link);
+}
+
+// ── Price + Change merged cell ──
+function buildPriceChangeCell(td, d) {
+  td.className = 'stacked-cell';
+  var priceRow = document.createElement('div');
+  priceRow.textContent = formatPrice(d.price);
+  td.appendChild(priceRow);
+  var chgRow = document.createElement('div');
+  chgRow.className = 'secondary';
+  chgRow.textContent = formatPct(d.change24h);
+  chgRow.style.color = d.change24h >= 0 ? 'var(--green)' : 'var(--red)';
+  td.appendChild(chgRow);
+}
+
+// ── Signal (hero column) ──
+function buildSignalCell(td, d) {
+  td.className = 'signal-cell';
+  var c = d._confluence;
+  var g = d._grade;
+  if (!c || !g) { td.textContent = '\u2014'; return; }
+
+  // Grade badge + direction
+  var badge = document.createElement('span');
+  badge.className = 'grade-badge ' + c.cls;
+  badge.textContent = c.grade;
+  td.appendChild(badge);
+
+  var dir = document.createElement('span');
+  dir.className = 'signal-dir';
+  dir.textContent = ' ' + c.dir;
+  dir.style.color = c.dir === 'LONG' ? 'var(--green)' : c.dir === 'SHORT' ? 'var(--red)' : 'var(--text-muted)';
+  td.appendChild(dir);
+
+  // Score percentage
+  var scoreLine = document.createElement('div');
+  scoreLine.className = 'signal-score';
+  scoreLine.textContent = c.score + '%';
+  td.appendChild(scoreLine);
+
+  // Catalyst text
+  if (c.catalyst && c.catalyst !== 'No clear catalyst') {
+    var catLine = document.createElement('div');
+    catLine.className = 'catalyst-text';
+    catLine.textContent = c.catalyst;
+    td.appendChild(catLine);
   }
+
+  // Tooltip
+  td.title = 'T:' + c.pillars.trend + ' M:' + c.pillars.momentum +
+    ' F:' + c.pillars.flow + ' S:' + c.pillars.sentiment +
+    ' | Gate: ' + c.gate + '/4' +
+    (c.tags.length > 0 ? ' | ' + c.tags.join(', ') : '');
+}
+
+// ── RSI Composite — most extreme across all TFs ──
+function getMostExtremeRSI(d) {
+  var rsis = [
+    { val: d.rsi15m, tf: '15m', div: d.div15m },
+    { val: d.rsi30m, tf: '30m', div: d.div30m },
+    { val: d.rsi4h,  tf: '4H',  div: null },
+    { val: d.rsiDaily, tf: 'D', div: null },
+  ].filter(function(r) { return r.val !== null && r.val !== undefined; });
+  if (rsis.length === 0) return null;
+  rsis.sort(function(a, b) { return Math.abs(b.val - 50) - Math.abs(a.val - 50); });
+  return rsis[0];
+}
+
+function buildRsiCompositeCell(td, d) {
+  var best = getMostExtremeRSI(d);
+  if (!best) { td.className = 'rsi-neutral'; td.textContent = '\u2014'; return; }
+
   var span = document.createElement('span');
-  span.className = rsiClass(val);
-  span.textContent = val.toFixed(1);
+  span.className = rsiClass(best.val);
+  span.textContent = best.val.toFixed(1);
   td.appendChild(span);
-  if (div === 'bull' || div === 'bear') {
+
+  var tf = document.createElement('span');
+  tf.className = 'tf-label';
+  tf.textContent = ' ' + best.tf;
+  td.appendChild(tf);
+
+  // Any divergence across any timeframe
+  var hasBullDiv = d.div15m === 'bull' || d.div30m === 'bull';
+  var hasBearDiv = d.div15m === 'bear' || d.div30m === 'bear';
+  if (hasBullDiv || hasBearDiv) {
     var dot = document.createElement('span');
     dot.style.cssText = 'display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:4px;vertical-align:middle;';
-    dot.style.background = div === 'bull' ? 'var(--green)' : 'var(--red)';
-    dot.title = div === 'bull' ? 'Bullish divergence' : 'Bearish divergence';
+    dot.style.background = hasBullDiv ? 'var(--green)' : 'var(--red)';
+    dot.title = hasBullDiv ? 'Bullish divergence' : 'Bearish divergence';
     td.appendChild(dot);
   }
-}
 
-function buildRsiHtfCell(td, d) {
-  var rsi = getMostExtremeRSI_HTF(d);
-  if (rsi.val === null) {
-    td.className = 'rsi-neutral'; td.textContent = '\u2014'; return;
+  // Tooltip with all RSI values
+  var allRsis = [
+    { val: d.rsi15m, tf: '15m', div: d.div15m },
+    { val: d.rsi30m, tf: '30m', div: d.div30m },
+    { val: d.rsi4h,  tf: '4H',  div: null },
+    { val: d.rsiDaily, tf: 'D', div: null },
+  ];
+  var tipParts = [];
+  for (var i = 0; i < allRsis.length; i++) {
+    var r = allRsis[i];
+    if (r.val !== null && r.val !== undefined) {
+      var s = r.tf + ': ' + r.val.toFixed(1);
+      if (r.div && r.div !== 'none') s += ' (' + r.div + ' div)';
+      tipParts.push(s);
+    }
   }
-  var span = document.createElement('span');
-  span.className = rsiClass(rsi.val); span.textContent = rsi.val.toFixed(1);
-  td.appendChild(span);
-  var tf = document.createElement('span');
-  tf.className = 'tf-label'; tf.textContent = rsi.tf;
-  td.appendChild(tf);
+  td.title = tipParts.join(' | ');
 }
 
-function buildGradeCell(td, d) {
-  var g = d._grade;
-  if (!g) { td.className = 'grade-F'; td.textContent = '\u2014'; return; }
-  var badge = document.createElement('span');
-  badge.className = (g.grade === 'A' || g.grade === 'B' || g.grade === 'C') ? ('grade-badge ' + g.cls) : g.cls;
-  badge.textContent = g.grade;
-  td.appendChild(badge);
-  var dir = document.createElement('span');
-  dir.className = 'grade-dir';
-  dir.textContent = g.dir;
-  td.appendChild(dir);
-  var sc = document.createElement('span');
-  sc.className = 'grade-score';
-  sc.textContent = g.score;
-  td.appendChild(sc);
-  // Tooltip with pillar breakdown
-  td.title = 'Trend: ' + g.pillars.trend + '/30  Momentum: ' + g.pillars.momentum + '/25  Flow: ' + g.pillars.flow + '/25  Sentiment: ' + g.pillars.sentiment + '/20';
-}
+// ── OI + Funding merged cell ──
+function buildOiFundingCell(td, d) {
+  td.className = 'stacked-cell';
 
-function buildOIDeltaCell(td, d) {
-  if (d.oiDeltaPct === null || d.oiDeltaPct === undefined) {
-    td.className = 'oi-flat'; td.textContent = '\u2014'; return;
+  // OI Delta line
+  var oiRow = document.createElement('div');
+  if (d.oiDeltaPct !== null && d.oiDeltaPct !== undefined) {
+    var lbl = getOIDeltaLabel(d.oiDeltaPct, d.change24h, d.change24h);
+    var oiSpan = document.createElement('span');
+    oiSpan.className = lbl.cls;
+    oiSpan.textContent = lbl.label;
+    oiRow.appendChild(oiSpan);
+    var pctSpan = document.createElement('span');
+    pctSpan.className = 'tf-label';
+    pctSpan.style.marginLeft = '3px';
+    pctSpan.textContent = (d.oiDeltaPct >= 0 ? '+' : '') + d.oiDeltaPct.toFixed(1) + '%';
+    oiRow.appendChild(pctSpan);
+  } else {
+    oiRow.textContent = '\u2014';
+    oiRow.style.color = 'var(--text-muted)';
   }
-  var lbl = getOIDeltaLabel(d.oiDeltaPct, d.change24h, d.change24h);
-  var main = document.createElement('span');
-  main.className = lbl.cls; main.textContent = lbl.label;
-  td.appendChild(main);
-  var pct = document.createElement('span');
-  pct.className = 'tf-label'; pct.style.marginLeft = '4px';
-  pct.textContent = (d.oiDeltaPct >= 0 ? '+' : '') + d.oiDeltaPct.toFixed(1) + '%';
-  td.appendChild(pct);
+  td.appendChild(oiRow);
+
+  // Funding rate line
+  var frRow = document.createElement('div');
+  frRow.className = 'secondary';
+  var frText = formatFundingRate(d.fundingRate);
+  frRow.textContent = frText;
+  var frN = parseFloat(d.fundingRate);
+  if (!isNaN(frN) && frN !== 0) {
+    var intensity = Math.min(1, Math.abs(frN) / 0.001);
+    if (frN < 0) frRow.style.color = 'rgb(50,' + Math.round(100 + 155 * intensity) + ',80)';
+    else frRow.style.color = 'rgb(' + Math.round(150 + 105 * intensity) + ',70,70)';
+    if (Math.abs(frN * 100) > 0.03) frRow.style.fontWeight = '700';
+  }
+  td.appendChild(frRow);
+
+  // Tooltip with full details
+  var tipParts = [];
+  if (d.oiDeltaPct !== null) tipParts.push('OI 24h: ' + (d.oiDeltaPct >= 0 ? '+' : '') + d.oiDeltaPct.toFixed(1) + '%');
+  if (d.oiDelta4h !== null) tipParts.push('OI 4h: ' + (d.oiDelta4h >= 0 ? '+' : '') + d.oiDelta4h.toFixed(1) + '%');
+  tipParts.push('Funding: ' + frText);
+  if (d.fundVelDir && d.fundVelDir !== 'flat') tipParts.push('Fund Vel: ' + d.fundVelDir);
+  if (d.lsRatio !== null && d.lsRatio !== undefined) tipParts.push('L/S: ' + (d.lsRatio * 100).toFixed(0) + 'L/' + ((1 - d.lsRatio) * 100).toFixed(0) + 'S');
+  td.title = tipParts.join(' | ');
 }
 
-function buildRangePositionCell(td, d) {
-  if (d.rangePosition === null || d.rangePosition === undefined) {
-    td.className = 'range-mid'; td.textContent = '\u2014'; return;
-  }
-  td.className = rangePositionClass(d.rangePosition);
-  var pct = Math.round(d.rangePosition * 100);
-  var aboveStr = d.rangeAbovePct !== null ? d.rangeAbovePct.toFixed(1) + '%' : '';
-  var belowStr = d.rangeBelowPct !== null ? d.rangeBelowPct.toFixed(1) + '%' : '';
-  // Show position as percentage through range + distances
-  var up = document.createElement('span');
-  up.style.color = 'var(--red)'; up.textContent = '\u25B2' + aboveStr;
-  td.appendChild(up);
-  var sep = document.createElement('span');
-  sep.className = 'tf-label'; sep.textContent = ' ' + pct + '% ';
-  td.appendChild(sep);
-  var dn = document.createElement('span');
-  dn.style.color = 'var(--green)'; dn.textContent = '\u25BC' + belowStr;
-  td.appendChild(dn);
-}
-
-function buildCvdCell(td, d) {
-  if (d.cvdTrend === undefined && d.cvdDivergence === undefined) {
-    td.className = 'cvd-neutral'; td.textContent = '\u2014'; return;
-  }
-  var cls = d.cvdTrend === 'bull' ? 'cvd-bull' : d.cvdTrend === 'bear' ? 'cvd-bear' : 'cvd-neutral';
-  var icon = d.cvdTrend === 'bull' ? '\u25B2' : d.cvdTrend === 'bear' ? '\u25BC' : '\u25C6';
-  var label = d.cvdTrend === 'bull' ? 'BUY' : d.cvdTrend === 'bear' ? 'SELL' : 'FLAT';
-  var main = document.createElement('span');
-  main.className = cls; main.textContent = icon + ' ' + label;
-  td.appendChild(main);
-  if (d.cvdDivergence === 'bull' || d.cvdDivergence === 'bear') {
-    var div = document.createElement('span');
-    div.style.cssText = 'font-size:9px;margin-left:3px;color:var(--' +
-      (d.cvdDivergence === 'bull' ? 'green-bright' : 'red-bright') + ')';
-    div.textContent = 'DIV' + (d.cvdDivergence === 'bull' ? '\u25B2' : '\u25BC');
-    td.appendChild(div);
-  }
-}
-
+// ── Squeeze cell (kept mostly as-is) ──
 function buildSqueezeCell(td, d) {
   if (d.squeezeOn === undefined || d.squeezePctile === null || d.squeezePctile === undefined) {
     td.className = 'squeeze-none'; td.textContent = '\u2014'; return;
@@ -1835,53 +1872,20 @@ function buildSqueezeCell(td, d) {
   td.textContent = Math.round((1 - d.squeezePctile) * 100) + '%';
 }
 
-function buildFundVelCell(td, d) {
-  if (!d.fundVelDir || d.fundVelSlope === null) {
-    td.className = 'fvel-flat'; td.textContent = '\u2014'; return;
+// ── Volume cell with RVOL indicator ──
+function buildVolumeCell(td, d) {
+  var volText = formatVolume(d.volume24h);
+  var span = document.createElement('span');
+  span.textContent = volText;
+  if (d.relVolume !== null && d.relVolume >= 3.0) span.style.fontWeight = '700';
+  td.appendChild(span);
+  if (d.relVolume !== null && d.relVolume >= 2.0) {
+    var indicator = document.createElement('span');
+    indicator.style.cssText = 'margin-left:4px;font-size:10px;color:var(--orange);';
+    indicator.textContent = d.relVolume.toFixed(1) + 'x';
+    indicator.title = 'Relative Volume: ' + d.relVolume.toFixed(1) + 'x average';
+    td.appendChild(indicator);
   }
-  var cls = d.fundVelDir === 'rising' ? 'fvel-rising' : d.fundVelDir === 'falling' ? 'fvel-falling' : 'fvel-flat';
-  var icon = d.fundVelDir === 'rising' ? '\u25B2' : d.fundVelDir === 'falling' ? '\u25BC' : '\u25C6';
-  td.className = cls;
-  var main = document.createElement('span');
-  main.textContent = icon + ' ' + d.fundVelDir.toUpperCase();
-  td.appendChild(main);
-  var val = document.createElement('span');
-  val.className = 'tf-label'; val.style.marginLeft = '3px';
-  val.textContent = (d.fundVelSlope >= 0 ? '+' : '') + (d.fundVelSlope * 10000).toFixed(2);
-  td.appendChild(val);
-}
-
-function buildEdgeCell(td, d) {
-  var c = d._confluence;
-  if (!c) { td.textContent = '\u2014'; return; }
-  // Show gate count (pillar agreement) as primary display
-  var gateColor = c.gate >= 4 ? 'var(--green-bright)' : c.gate >= 3 ? 'var(--green)' :
-                  c.gate >= 2 ? 'var(--yellow)' : 'var(--text-muted)';
-  var gateSpan = document.createElement('span');
-  gateSpan.style.color = gateColor;
-  gateSpan.style.fontWeight = c.gate >= 3 ? '700' : '500';
-  gateSpan.textContent = c.gate + '/4';
-  td.appendChild(gateSpan);
-  // Show tags inline if any
-  if (c.tags.length > 0) {
-    var tagSpan = document.createElement('span');
-    tagSpan.style.cssText = 'font-size:9px;margin-left:4px;color:var(--text-muted);';
-    tagSpan.textContent = c.tags.join(' ');
-    td.appendChild(tagSpan);
-  }
-  td.title = 'Confluence: ' + c.gate + '/4 pillars | T:' + c.pillars.trend +
-    ' M:' + c.pillars.momentum + ' F:' + c.pillars.flow + ' S:' + c.pillars.sentiment +
-    (c.tags.length > 0 ? ' | Tags: ' + c.tags.join(', ') : '');
-}
-
-function buildLSRatioCell(td, d) {
-  if (d.lsRatio === null || d.lsRatio === undefined) {
-    td.className = 'ls-neutral'; td.textContent = '\u2014'; return;
-  }
-  var longPct = (d.lsRatio * 100).toFixed(0);
-  var shortPct = ((1 - d.lsRatio) * 100).toFixed(0);
-  td.className = d.lsRatio > 0.55 ? 'ls-long-heavy' : d.lsRatio < 0.45 ? 'ls-short-heavy' : 'ls-neutral';
-  td.textContent = longPct + 'L/' + shortPct + 'S';
 }
 
 // ============================================================
@@ -1988,28 +1992,34 @@ function getSortedFiltered() {
     arr = arr.filter(function(d) { return d.volume24h >= volumeMinFilter; });
   }
 
+  // Quick filters
+  if (activeFilters.has('grade-ab')) {
+    arr = arr.filter(function(d) {
+      var c = d._confluence;
+      return c && (c.grade === 'A' || c.grade === 'B');
+    });
+  }
   if (activeFilters.has('ob-os')) {
     arr = arr.filter(function(d) {
       return (d.rsi15m !== null && (d.rsi15m <= 30 || d.rsi15m >= 70)) ||
              (d.rsi30m !== null && (d.rsi30m <= 30 || d.rsi30m >= 70));
     });
   }
+  if (activeFilters.has('squeeze')) {
+    arr = arr.filter(function(d) { return d.squeezeOn === true; });
+  }
+
+  // Advanced filters (More dropdown)
   if (activeFilters.has('divergence')) {
     arr = arr.filter(function(d) {
       return d.div15m === 'bull' || d.div15m === 'bear' || d.div30m === 'bull' || d.div30m === 'bear';
     });
-  }
-  if (activeFilters.has('rvol')) {
-    arr = arr.filter(function(d) { return d.relVolume !== null && d.relVolume > 2; });
   }
   if (activeFilters.has('choch-aligned')) {
     arr = arr.filter(function(d) {
       var vals = [d.choch15m, d.choch30m, d.choch4h, d.chochDaily].filter(function(v) { return v !== 'none'; });
       return vals.length >= 2 && vals.every(function(v) { return v === vals[0]; });
     });
-  }
-  if (activeFilters.has('squeeze')) {
-    arr = arr.filter(function(d) { return d.squeezeOn === true; });
   }
   if (activeFilters.has('oi-buildup')) {
     arr = arr.filter(function(d) {
@@ -2021,53 +2031,42 @@ function getSortedFiltered() {
       return d.cvdDivergence === 'bull' || d.cvdDivergence === 'bear';
     });
   }
-
+  if (activeFilters.has('rvol')) {
+    arr = arr.filter(function(d) { return d.relVolume !== null && d.relVolume > 2; });
+  }
 
   function compareByKey(a, b, key, dir) {
     if (key === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
-    if (key === 'rsi15m' || key === 'rsi30m') {
-      var va = a[key] != null ? Math.abs(a[key] - 50) : -1;
-      var vb = b[key] != null ? Math.abs(b[key] - 50) : -1;
+    if (key === 'priceChange') {
+      return dir * ((a.price || 0) - (b.price || 0));
+    }
+    if (key === 'signal') {
+      var sa = a._confluence ? Math.abs(a._confluence.final) : -1;
+      var sb = b._confluence ? Math.abs(b._confluence.final) : -1;
+      return dir * (sa - sb);
+    }
+    if (key === 'rsiComposite') {
+      var ra = getMostExtremeRSI(a), rb = getMostExtremeRSI(b);
+      var va = ra ? Math.abs(ra.val - 50) : -1;
+      var vb = rb ? Math.abs(rb.val - 50) : -1;
       return dir * (va - vb);
     }
-    if (key === 'rsiHtf') {
-      var ra = getMostExtremeRSI_HTF(a), rb = getMostExtremeRSI_HTF(b);
-      return dir * ((ra.val !== null ? Math.abs(ra.val - 50) : -1) - (rb.val !== null ? Math.abs(rb.val - 50) : -1));
-    }
-
-    if (key === 'oiDelta') {
+    if (key === 'oiFunding') {
       var va = a.oiDeltaPct != null ? Math.abs(a.oiDeltaPct) : -1;
       var vb = b.oiDeltaPct != null ? Math.abs(b.oiDeltaPct) : -1;
       return dir * (va - vb);
-    }
-    if (key === 'rangePosition') {
-      var va = a.rangePosition != null ? Math.abs(a.rangePosition - 0.5) : -1;
-      var vb = b.rangePosition != null ? Math.abs(b.rangePosition - 0.5) : -1;
-      return dir * (va - vb);
-    }
-    if (key === 'cvd') {
-      var cvdScore = function(d) {
-        var s = 0;
-        if (d.cvdDivergence === 'bull' || d.cvdDivergence === 'bear') s += 2;
-        if (d.cvdTrend === 'bull' || d.cvdTrend === 'bear') s += 1;
-        return s;
-      };
-      return dir * (cvdScore(a) - cvdScore(b));
     }
     if (key === 'squeeze') {
       var sqScore = function(d) { return d.squeezeOn ? 2 : d.squeezeBuilding ? 1 : 0; };
       return dir * (sqScore(a) - sqScore(b));
     }
-    if (key === 'fundVelocity') {
-      var va = a.fundVelSlope != null ? Math.abs(a.fundVelSlope) : -1;
-      var vb = b.fundVelSlope != null ? Math.abs(b.fundVelSlope) : -1;
-      return dir * (va - vb);
+    if (key === 'volume') {
+      return dir * ((a.volume24h || 0) - (b.volume24h || 0));
     }
-    if (key === 'lsRatio') {
-      var va = a.lsRatio != null ? Math.abs(a.lsRatio - 0.5) : -1;
-      var vb = b.lsRatio != null ? Math.abs(b.lsRatio - 0.5) : -1;
-      return dir * (va - vb);
+    if (key === 'relVolume') {
+      return dir * ((a.relVolume || 0) - (b.relVolume || 0));
     }
+    // Fallback for openInterest and other keys
     var va = a[key], vb = b[key];
     if (va == null) va = dir === 1 ? Infinity : -Infinity;
     if (vb == null) vb = dir === 1 ? Infinity : -Infinity;
@@ -2077,6 +2076,10 @@ function getSortedFiltered() {
   }
 
   arr.sort(function(a, b) {
+    // Starred symbols always first
+    var aStarred = starredSymbols.has(a.symbol) ? 1 : 0;
+    var bStarred = starredSymbols.has(b.symbol) ? 1 : 0;
+    if (aStarred !== bStarred) return bStarred - aStarred;
     for (var li = 0; li < sortLevels.length; li++) {
       var cmp = compareByKey(a, b, sortLevels[li].key, sortLevels[li].dir);
       if (cmp !== 0) return cmp;
@@ -2125,43 +2128,36 @@ function renderTable() {
       })(tr, d.symbol);
     }
 
+    // Row tinting for strong signals
+    var c = d._confluence;
+    if (c && (c.grade === 'A' || c.grade === 'B')) {
+      if (c.dir === 'LONG') tr.classList.add('signal-long-strong');
+      else if (c.dir === 'SHORT') tr.classList.add('signal-short-strong');
+    }
+
+    // Starred divider: mark last starred row
+    if (starredSymbols.has(d.symbol)) {
+      var nextD = ai + 1 < arr.length ? arr[ai + 1] : null;
+      if (!nextD || !starredSymbols.has(nextD.symbol)) tr.classList.add('starred-divider');
+    }
+
     for (var ci = 0; ci < cols.length; ci++) {
       var col = cols[ci];
       var td = document.createElement('td');
 
-      // P3: All data cells use textContent/DOM building — no innerHTML
       switch (col.key) {
-        case 'symbol':     td.textContent = d.symbol; break;
-        case 'price':      td.textContent = formatPrice(d.price); break;
-        case 'change24h':
-          td.textContent = formatPct(d.change24h);
-          td.className = changeHeatClass(d.change24h) || (d.change24h >= 0 ? 'change-positive' : 'change-negative');
-          break;
-        case 'volume24h':  td.textContent = formatVolume(d.volume24h); break;
+        case 'symbol':        buildSymbolCell(td, d); break;
+        case 'priceChange':   buildPriceChangeCell(td, d); break;
+        case 'signal':        buildSignalCell(td, d); break;
+        case 'rsiComposite':  buildRsiCompositeCell(td, d); break;
+        case 'oiFunding':     buildOiFundingCell(td, d); break;
+        case 'squeeze':       buildSqueezeCell(td, d); break;
+        case 'volume':        buildVolumeCell(td, d); break;
+        case 'openInterest':  td.textContent = formatVolume(d.openInterest); break;
         case 'relVolume':
           td.textContent = d.relVolume !== null ? d.relVolume.toFixed(1) + 'x' : '\u2014';
           td.className = rvolClass(d.relVolume);
           break;
-        case 'rsi15m':        buildRsiCell(td, d.rsi15m, d.div15m); break;
-        case 'rsi30m':        buildRsiCell(td, d.rsi30m, d.div30m); break;
-        case 'rsiHtf':         buildRsiHtfCell(td, d); break;
-
-        case 'oiDelta':        buildOIDeltaCell(td, d); break;
-        case 'rangePosition':  buildRangePositionCell(td, d); break;
-        case 'cvd':            buildCvdCell(td, d); break;
-        case 'squeeze':        buildSqueezeCell(td, d); break;
-        case 'fundVelocity':   buildFundVelCell(td, d); break;
-        case 'lsRatio':        buildLSRatioCell(td, d); break;
-        case 'fundingRate':
-          td.textContent = formatFundingRate(d.fundingRate);
-          var n = parseFloat(d.fundingRate);
-          if (!isNaN(n) && n !== 0) {
-            var intensity = Math.min(1, Math.abs(n) / 0.001);
-            if (n < 0) td.style.color = 'rgb(50,' + Math.round(100 + 155 * intensity) + ',80)';
-            else td.style.color = 'rgb(' + Math.round(150 + 105 * intensity) + ',70,70)';
-          }
-          break;
-        case 'openInterest':   td.textContent = formatVolume(d.openInterest); break;
       }
       tr.appendChild(td);
     }
@@ -2642,331 +2638,19 @@ function updateFilterClearBtn() {
 
 // ============================================================
 // ============================================================
-// Pre-Trade Checklist — enforces institutional process
-// ============================================================
 
-var checklistSymbol = null;
 
-var CHECKLIST_ITEMS = {
-  structure: [
-    { id: 'htf-trend', label: 'HTF trend confirmed', hint: '4H/Daily CHOCH aligned with direction', auto: 'choch' },
-    { id: 'ltf-entry', label: 'LTF entry structure', hint: '15m/30m CHOCH confirms direction', auto: 'ltf' },
-    { id: 'rsi-aligned', label: 'RSI supports bias', hint: 'Multi-TF RSI alignment with direction', auto: 'rsi' },
-    { id: 'div-check', label: 'No adverse divergence', hint: 'RSI divergence not opposing trade direction', auto: 'divergence' },
-  ],
-  risk: [
-    { id: 'funding-checked', label: 'Funding rate favorable', hint: 'Funding not crowded against direction', auto: 'funding' },
-    { id: 'ls-ratio', label: 'L/S ratio not extreme', hint: 'Crowd not over-positioned against trade', auto: 'lsratio' },
-    { id: 'range-pos', label: 'Range position favorable', hint: 'Not chasing into exhaustion extreme', auto: 'rangepos' },
-    { id: 'squeeze-state', label: 'Volatility context', hint: 'BB squeeze state and readiness', auto: 'squeeze' },
-  ],
-  execution: [
-    { id: 'oi-confirms', label: 'OI confirms new money', hint: 'OI delta shows fresh positioning, not just covering', auto: 'oi' },
-    { id: 'cvd-flow', label: 'Order flow supports bias', hint: 'CVD trend or divergence aligns with direction', auto: 'cvd' },
-    { id: 'liquidity-ok', label: 'Sufficient volume/liquidity', hint: '24H volume adequate for position size', auto: 'volume' },
-    { id: 'rvol-check', label: 'Participation confirmed', hint: 'Relative volume shows active interest', auto: 'rvol' },
-  ]
-};
-
-function openChecklist(symbol) {
-  var d = instruments[symbol];
-  if (!d) return;
-  checklistSymbol = symbol;
-
-  renderChecklistPanel(d);
-  document.getElementById('checklistBackdrop').classList.add('open');
-  document.getElementById('checklistPanel').classList.add('open');
-}
-
-function closeChecklist() {
-  document.getElementById('checklistBackdrop').classList.remove('open');
-  document.getElementById('checklistPanel').classList.remove('open');
-  checklistSymbol = null;
-}
-
-function getAutoStatus(d, itemId) {
-  var g = d._grade;
-  var isLong = g ? g.dir === 'LONG' : (d._signal || 0) >= 0;
-
-  if (itemId === 'htf-trend') {
-    var ch = getChochSummary(d);
-    var matches = (isLong && ch.dir === 'bull') || (!isLong && ch.dir === 'bear');
-    if (ch.aligned && matches) return { status: 'pass', text: 'ALIGNED' };
-    if (matches && ch.count >= 1) return { status: 'warn', text: 'PARTIAL' };
-    return { status: 'fail', text: 'MISALIGNED' };
-  }
-  if (itemId === 'ltf-entry') {
-    var ltf = isLong ? (d.choch15m === 'bull' || d.choch30m === 'bull')
-                     : (d.choch15m === 'bear' || d.choch30m === 'bear');
-    return ltf ? { status: 'pass', text: 'CONFIRMED' } : { status: 'warn', text: 'WAITING' };
-  }
-  if (itemId === 'rsi-aligned') {
-    var rsiArr = [d.rsiDaily, d.rsi4h, d.rsi30m, d.rsi15m].filter(function(v) { return v !== null && v !== undefined; });
-    if (rsiArr.length === 0) return { status: 'warn', text: 'NO DATA' };
-    var bullCount = 0, bearCount = 0;
-    for (var i = 0; i < rsiArr.length; i++) { if (rsiArr[i] > 50) bullCount++; else bearCount++; }
-    var rsiMatch = isLong ? bullCount : bearCount;
-    if (rsiMatch === rsiArr.length) return { status: 'pass', text: rsiMatch + '/' + rsiArr.length + ' TFs' };
-    if (rsiMatch >= rsiArr.length * 0.5) return { status: 'warn', text: rsiMatch + '/' + rsiArr.length + ' TFs' };
-    return { status: 'fail', text: rsiMatch + '/' + rsiArr.length + ' TFs' };
-  }
-  if (itemId === 'div-check') {
-    var hasBullDiv = d.div15m === 'bull' || d.div30m === 'bull';
-    var hasBearDiv = d.div15m === 'bear' || d.div30m === 'bear';
-    if (isLong && hasBearDiv) return { status: 'fail', text: 'BEAR DIV' };
-    if (!isLong && hasBullDiv) return { status: 'fail', text: 'BULL DIV' };
-    if (isLong && hasBullDiv) return { status: 'pass', text: 'BULL DIV' };
-    if (!isLong && hasBearDiv) return { status: 'pass', text: 'BEAR DIV' };
-    return { status: 'pass', text: 'CLEAR' };
-  }
-  if (itemId === 'oi-confirms') {
-    if (d.oiDeltaPct === null) return { status: 'warn', text: 'NO DATA' };
-    var lbl = getOIDeltaLabel(d.oiDeltaPct, d.change24h, d.change24h);
-    var oiMatch = (isLong && lbl.dir > 0) || (!isLong && lbl.dir < 0);
-    if (oiMatch && Math.abs(d.oiDeltaPct) > 3) return { status: 'pass', text: lbl.label };
-    if (oiMatch) return { status: 'warn', text: lbl.label };
-    return { status: 'fail', text: lbl.label };
-  }
-  if (itemId === 'cvd-flow') {
-    var cvdMatch = (isLong && (d.cvdTrend === 'bull' || d.cvdDivergence === 'bull')) ||
-                   (!isLong && (d.cvdTrend === 'bear' || d.cvdDivergence === 'bear'));
-    if (cvdMatch && d.cvdDivergence !== 'none') return { status: 'pass', text: 'STRONG' };
-    if (cvdMatch) return { status: 'pass', text: 'ALIGNED' };
-    return { status: 'fail', text: 'COUNTER' };
-  }
-  if (itemId === 'funding-checked') {
-    var fr = d.fundingRate;
-    if (fr === null || fr === undefined) return { status: 'warn', text: 'NO DATA' };
-    // Contrarian: high positive funding is bad for longs, bad negative is bad for shorts
-    var frPct = fr * 100;
-    if (isLong) {
-      if (frPct > 0.05) return { status: 'fail', text: 'CROWDED +' + frPct.toFixed(3) + '%' };
-      if (frPct > 0.01) return { status: 'warn', text: '+' + frPct.toFixed(3) + '%' };
-      if (frPct < -0.01) return { status: 'pass', text: 'FAVORABLE ' + frPct.toFixed(3) + '%' };
-      return { status: 'pass', text: 'NEUTRAL' };
-    } else {
-      if (frPct < -0.05) return { status: 'fail', text: 'CROWDED ' + frPct.toFixed(3) + '%' };
-      if (frPct < -0.01) return { status: 'warn', text: frPct.toFixed(3) + '%' };
-      if (frPct > 0.01) return { status: 'pass', text: 'FAVORABLE +' + frPct.toFixed(3) + '%' };
-      return { status: 'pass', text: 'NEUTRAL' };
-    }
-  }
-  if (itemId === 'ls-ratio') {
-    if (d.lsRatio === null || d.lsRatio === undefined) return { status: 'warn', text: 'NO DATA' };
-    var ls = d.lsRatio;
-    if (isLong) {
-      if (ls > 0.65) return { status: 'fail', text: 'CROWDED LONG ' + ls.toFixed(2) };
-      if (ls > 0.55) return { status: 'warn', text: 'ELEVATED ' + ls.toFixed(2) };
-      if (ls < 0.40) return { status: 'pass', text: 'FUEL ' + ls.toFixed(2) };
-      return { status: 'pass', text: 'OK ' + ls.toFixed(2) };
-    } else {
-      if (ls < 0.35) return { status: 'fail', text: 'CROWDED SHORT ' + ls.toFixed(2) };
-      if (ls < 0.45) return { status: 'warn', text: 'ELEVATED ' + ls.toFixed(2) };
-      if (ls > 0.60) return { status: 'pass', text: 'FUEL ' + ls.toFixed(2) };
-      return { status: 'pass', text: 'OK ' + ls.toFixed(2) };
-    }
-  }
-  if (itemId === 'range-pos') {
-    var rp = d.rangePosition;
-    if (rp === null || rp === undefined) return { status: 'warn', text: 'NO DATA' };
-    var rpPct = Math.round(rp * 100);
-    if (isLong) {
-      if (rp > 0.90) return { status: 'fail', text: 'AT HIGH ' + rpPct + '%' };
-      if (rp > 0.80) return { status: 'warn', text: 'NEAR HIGH ' + rpPct + '%' };
-      if (rp < 0.30) return { status: 'pass', text: 'BUY ZONE ' + rpPct + '%' };
-      return { status: 'pass', text: rpPct + '%' };
-    } else {
-      if (rp < 0.10) return { status: 'fail', text: 'AT LOW ' + rpPct + '%' };
-      if (rp < 0.20) return { status: 'warn', text: 'NEAR LOW ' + rpPct + '%' };
-      if (rp > 0.70) return { status: 'pass', text: 'SELL ZONE ' + rpPct + '%' };
-      return { status: 'pass', text: rpPct + '%' };
-    }
-  }
-  if (itemId === 'squeeze-state') {
-    if (d.squeezeOn) return { status: 'pass', text: 'SQUEEZE ON' };
-    if (d.squeezeBuilding) return { status: 'pass', text: 'BUILDING' };
-    if (d.squeezePctile !== null && d.squeezePctile < 0.20) return { status: 'warn', text: 'TIGHTENING' };
-    if (d.squeezePctile !== null && d.squeezePctile > 0.80) return { status: 'warn', text: 'EXPANDED' };
-    return { status: 'pass', text: 'NORMAL' };
-  }
-  if (itemId === 'liquidity-ok') {
-    if (d.volume24h > 50000000) return { status: 'pass', text: formatVolume(d.volume24h) };
-    if (d.volume24h > 10000000) return { status: 'warn', text: formatVolume(d.volume24h) };
-    return { status: 'fail', text: formatVolume(d.volume24h) };
-  }
-  if (itemId === 'rvol-check') {
-    if (d.relVolume === null || d.relVolume === undefined) return { status: 'warn', text: 'NO DATA' };
-    if (d.relVolume >= 2.0) return { status: 'pass', text: d.relVolume.toFixed(1) + 'x IN PLAY' };
-    if (d.relVolume >= 1.2) return { status: 'pass', text: d.relVolume.toFixed(1) + 'x ACTIVE' };
-    if (d.relVolume >= 0.8) return { status: 'warn', text: d.relVolume.toFixed(1) + 'x NORMAL' };
-    return { status: 'fail', text: d.relVolume.toFixed(1) + 'x LOW' };
-  }
-  return null;
-}
-
-function renderChecklistPanel(d) {
-  var g = d._grade;
-  var isLong = g ? g.dir === 'LONG' : (d._signal || 0) >= 0;
-  var dir = isLong ? 'LONG' : 'SHORT';
-
-  // Summary
-  var summary = document.getElementById('checklistSummary');
-  summary.innerHTML = '';
-  var symRow = document.createElement('div');
-  symRow.className = 'checklist-symbol';
-  var symText = document.createElement('span');
-  symText.textContent = d.symbol;
-  symRow.appendChild(symText);
-  var dirBadge = document.createElement('span');
-  dirBadge.className = 'checklist-dir ' + dir.toLowerCase();
-  dirBadge.textContent = dir;
-  symRow.appendChild(dirBadge);
-  summary.appendChild(symRow);
-
-  var meta = document.createElement('div');
-  meta.className = 'checklist-meta';
-  var c = d._confluence;
-  var metaItems = [
-    { label: 'Price', value: formatPrice(d.price) },
-    { label: 'Grade', value: g ? g.grade + ' (' + g.score + ')' : '\u2014', color: g ? (g.grade === 'A' ? 'var(--green-bright)' : g.grade === 'B' ? 'var(--green)' : 'var(--yellow)') : '' },
-    { label: 'Confluence', value: c ? c.gate + '/4 pillars' : '\u2014', color: c ? (c.gate >= 4 ? 'var(--green-bright)' : c.gate >= 3 ? 'var(--green)' : c.gate >= 2 ? 'var(--yellow)' : 'var(--text-muted)') : '' },
-    { label: '24H Change', value: formatPct(d.change24h), color: d.change24h >= 0 ? 'var(--green)' : 'var(--red)' },
-  ];
-  for (var i = 0; i < metaItems.length; i++) {
-    var mi = document.createElement('div');
-    mi.className = 'checklist-meta-item';
-    var lbl = document.createElement('div');
-    lbl.className = 'checklist-meta-label';
-    lbl.textContent = metaItems[i].label;
-    mi.appendChild(lbl);
-    var val = document.createElement('div');
-    val.className = 'checklist-meta-value';
-    val.textContent = metaItems[i].value;
-    if (metaItems[i].color) val.style.color = metaItems[i].color;
-    mi.appendChild(val);
-    meta.appendChild(mi);
-  }
-  summary.appendChild(meta);
-
-  // Render checklist sections — all items are auto-computed
-  var sections = ['structure', 'risk', 'execution'];
-  var sectionIds = ['checklistStructure', 'checklistRisk', 'checklistExecution'];
-  var totalItems = 0;
-  var passItems = 0;
-  var warnItems = 0;
-  var failItems = 0;
-
-  for (var si = 0; si < sections.length; si++) {
-    var container = document.getElementById(sectionIds[si]);
-    container.innerHTML = '';
-    var items = CHECKLIST_ITEMS[sections[si]];
-    for (var ii = 0; ii < items.length; ii++) {
-      var item = items[ii];
-      totalItems++;
-      var autoResult = getAutoStatus(d, item.id);
-      if (autoResult) {
-        if (autoResult.status === 'pass') passItems++;
-        else if (autoResult.status === 'warn') warnItems++;
-        else failItems++;
-      }
-
-      var row = document.createElement('div');
-      row.className = 'checklist-item' + (autoResult && autoResult.status === 'pass' ? ' checked' : '');
-      row.dataset.itemId = item.id;
-
-      var check = document.createElement('div');
-      check.className = 'checklist-check';
-      check.textContent = autoResult ? (autoResult.status === 'pass' ? '\u2713' : autoResult.status === 'warn' ? '!' : '\u2717') : '\u2014';
-      if (autoResult) {
-        check.style.borderColor = autoResult.status === 'pass' ? 'var(--green)' : autoResult.status === 'warn' ? 'var(--yellow)' : 'var(--red)';
-        check.style.color = autoResult.status === 'pass' ? 'var(--green)' : autoResult.status === 'warn' ? 'var(--yellow)' : 'var(--red)';
-        if (autoResult.status === 'pass') check.style.background = 'rgba(34,197,94,0.15)';
-        else if (autoResult.status === 'fail') check.style.background = 'rgba(239,68,68,0.15)';
-        else check.style.background = 'rgba(234,179,8,0.15)';
-      }
-      row.appendChild(check);
-
-      var textWrap = document.createElement('div');
-      textWrap.className = 'checklist-item-text';
-      var label = document.createElement('div');
-      label.className = 'checklist-item-label';
-      label.textContent = item.label;
-
-      if (autoResult) {
-        var badge = document.createElement('span');
-        badge.className = 'checklist-item-auto ' + autoResult.status;
-        badge.textContent = autoResult.text;
-        label.appendChild(badge);
-      }
-
-      textWrap.appendChild(label);
-      var hint = document.createElement('div');
-      hint.className = 'checklist-item-hint';
-      hint.textContent = item.hint;
-      textWrap.appendChild(hint);
-      row.appendChild(textWrap);
-
-      container.appendChild(row);
-    }
-  }
-
-  // Footer — auto-computed summary
-  var footer = document.getElementById('checklistFooter');
-  footer.innerHTML = '';
-
-  var progress = document.createElement('div');
-  progress.className = 'checklist-progress';
-  var bar = document.createElement('div');
-  bar.className = 'checklist-progress-bar';
-  var fill = document.createElement('div');
-  fill.className = 'checklist-progress-fill';
-  var passPct = totalItems > 0 ? Math.round(passItems / totalItems * 100) : 0;
-  fill.style.width = passPct + '%';
-  if (failItems > 3) fill.style.background = 'var(--red)';
-  else if (failItems > 1) fill.style.background = 'var(--yellow)';
-  else fill.style.background = 'var(--green)';
-  bar.appendChild(fill);
-  progress.appendChild(bar);
-  var pText = document.createElement('div');
-  pText.className = 'checklist-progress-text';
-  pText.textContent = passItems + '/' + totalItems + ' pass';
-  progress.appendChild(pText);
-  footer.appendChild(progress);
-
-  var verdict = document.createElement('div');
-  if (failItems === 0 && warnItems <= 2) {
-    verdict.className = 'checklist-verdict complete';
-    verdict.textContent = 'High confluence — ' + passItems + ' checks pass, ' + warnItems + ' caution';
-  } else if (failItems <= 2) {
-    verdict.className = 'checklist-verdict incomplete';
-    verdict.textContent = 'Mixed signals — ' + failItems + ' fail, ' + warnItems + ' caution';
-  } else {
-    verdict.className = 'checklist-verdict incomplete';
-    verdict.style.borderColor = 'var(--red)';
-    verdict.style.color = 'var(--red)';
-    verdict.textContent = 'Low confluence — ' + failItems + ' checks failing';
-  }
-  footer.appendChild(verdict);
-}
-
-// ── Checklist event listeners ──
-document.getElementById('checklistClose').addEventListener('click', closeChecklist);
-document.getElementById('checklistBackdrop').addEventListener('click', closeChecklist);
-
-// Row click opens checklist (on symbol cell)
+// Symbol click → open TradingView chart
 document.getElementById('tableBody').addEventListener('click', function(e) {
   var td = e.target.closest('td');
   var tr = e.target.closest('tr');
   if (!tr || !tr.dataset.symbol) return;
-  // Only open on symbol column click (first cell) or double-click on row
+  // Star icon click handled separately
+  if (e.target.classList.contains('star-icon')) return;
+  // Symbol cell (first cell) → open TradingView
   if (td === tr.firstElementChild) {
-    openChecklist(tr.dataset.symbol);
-  }
-});
-document.getElementById('tableBody').addEventListener('dblclick', function(e) {
-  var tr = e.target.closest('tr');
-  if (tr && tr.dataset.symbol) {
-    openChecklist(tr.dataset.symbol);
+    var sym = tr.dataset.symbol.replace('USDT', '');
+    window.open('https://www.tradingview.com/chart/?symbol=BYBIT:' + encodeURIComponent(tr.dataset.symbol) + '.P', '_blank');
   }
 });
 
