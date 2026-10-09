@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - index.html
+      - comparative-evidence/**
       - .github/workflows/publish-pages.yml
   workflow_dispatch:
 
@@ -32,6 +33,7 @@ jobs:
         run: |
           mkdir -p _site
           cp index.html _site/index.html
+          cp -R comparative-evidence _site/comparative-evidence
           touch _site/.nojekyll
       - name: Upload website artifact
         uses: actions/upload-pages-artifact@v4
